@@ -1,0 +1,5 @@
+playerId,playerName,statement,isTruth
+1,"Baneet","I am a licensed pilot.",TRUE
+2,"Gaurav","I have never seen the ocean.",FALSE
+3,"Player 3","I once ate a whole ghost pepper on a dare.",TRUE
+4,"Player 4","My favorite movie is a romantic comedy.",FALSE
