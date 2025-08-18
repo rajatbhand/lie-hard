@@ -25,6 +25,7 @@ interface GameState {
   players: Player[];
   showScoreboard: boolean;
   showLeaderboardModal: boolean;
+  roundStarted: boolean; // Whether the current round has been started (shows intro vs actual content)
   round1: {
     statements: Round1Statement[];
     currentStorytellerId: number | null;
@@ -33,6 +34,10 @@ interface GameState {
     guesses: { [key: number]: 'TRUE' | 'LIE' | '' };
   };
   round2: {
+    statements: string[]; // Array of 5 statements for part 1
+    revealedStatements: boolean[]; // Array of 5 booleans for which statements are revealed
+    revealOrder: number[]; // Array to track the order statements were revealed
+    part: 'STATEMENTS' | 'GUESSING'; // Current part of round 2
     guesses: { [key: number]: number | null };
     actualValue: number | null;
     winnerId: number | null;
@@ -43,9 +48,13 @@ interface GameState {
       statements: string[];
       trueIndex: number;
     }[];
-    currentStorytellerId: number;
+    currentStorytellerId: number | null;
+    currentStatements: string[]; // Current storyteller's 3 statements
+    trueIndex: number; // Which statement is true (0, 1, or 2)
+    nonPlayerGuesses: { [key: number]: number | null }; // Non-storyteller players' guesses (0, 1, or 2)
     votingOpen: boolean;
     showResult: boolean;
+    completedStorytellers: number[]; // Array of player IDs who have completed their turn
   };
   round4: {
     objectTitle: string;
@@ -81,19 +90,23 @@ export default function DisplayPage() {
   }
 
   return (
-    <div className="bg-black flex justify-center items-center h-screen">
-      {/* The main 13:9 container */}
-      <div className="aspect-[13/9] h-full bg-[#046322] text-white flex font-sans shadow-2xl relative">
+    <div className="bg-black flex justify-center items-center h-screen w-screen">
+      {/* The main 13:9 container - responsive for projector */}
+      <div className="aspect-[13/9] w-full h-full max-w-[95vw] max-h-[95vh] bg-[#046322] text-white flex font-sans shadow-2xl relative">
         <main
           className={`h-full transition-all duration-500 ease-in-out ${
             gameState.showScoreboard ? 'w-[90%]' : 'w-full'
           }`}
         >
           {gameState.currentRound === 'LOBBY' && <LobbyScreen players={gameState.players} />}
-          {gameState.currentRound === 'R1' && <Round1Display gameState={gameState} />}
-          {gameState.currentRound === 'R2' && <Round2Display gameState={gameState} />}
-          {gameState.currentRound === 'R3' && <Round3Display gameState={gameState} />}
-          {gameState.currentRound === 'R4' && <Round4Display gameState={gameState} />}
+          {gameState.currentRound === 'R1' && !gameState.roundStarted && <RoundIntro round="R1" />}
+          {gameState.currentRound === 'R1' && gameState.roundStarted && <Round1Display gameState={gameState} />}
+          {gameState.currentRound === 'R2' && !gameState.roundStarted && <RoundIntro round="R2" />}
+          {gameState.currentRound === 'R2' && gameState.roundStarted && <Round2Display gameState={gameState} />}
+          {gameState.currentRound === 'R3' && !gameState.roundStarted && <RoundIntro round="R3" />}
+          {gameState.currentRound === 'R3' && gameState.roundStarted && <Round3Display gameState={gameState} />}
+          {gameState.currentRound === 'R4' && !gameState.roundStarted && <RoundIntro round="R4" />}
+          {gameState.currentRound === 'R4' && gameState.roundStarted && <Round4Display gameState={gameState} />}
           {gameState.currentRound === 'WINNER' && <WinnerScreen players={gameState.players} />}
         </main>
 
@@ -106,9 +119,62 @@ export default function DisplayPage() {
 }
 
 // --- ROUND & LOBBY COMPONENTS ---
+const RoundIntro = ({ round }: { round: 'R1' | 'R2' | 'R3' | 'R4' }) => {
+  const roundInfo = {
+    R1: {
+      name: "Better Call Bluff",
+      description: "Players take turns making statements. The audience must guess whether each statement is true or false. Correct guesses earn points!"
+    },
+    R2: {
+      name: "Phone Out, Cash In",
+      description: "First, we'll show you 5 statements about a phone's resale value. Then players will guess the actual resale value. Closest guess wins!"
+    },
+    R3: {
+      name: "Catch Me If You Can",
+      description: "Each player presents 3 statements, but only one is true. Non-playing players guess which statement is true, then the audience votes. Correct guesses earn 3 points!"
+    },
+    R4: {
+      name: "Faking Bad",
+      description: "Players compete to prove they own a mysterious object. The audience votes on who they believe is the real owner!"
+    }
+  };
+
+  const info = roundInfo[round];
+
+  return (
+    <div className="w-full h-full flex flex-col justify-center items-center bg-gray-900">
+      <div className="text-center">
+        <h1 className="text-4xl md:text-6xl lg:text-8xl font-bold text-[#F2C14E] mb-8">
+          Round {round.slice(1)}
+        </h1>
+        <h2 className="text-3xl md:text-5xl lg:text-7xl font-bold text-white mb-8">
+          {info.name}
+        </h2>
+        <p className="text-xl md:text-2xl lg:text-3xl text-gray-300 max-w-4xl mx-auto px-8 leading-relaxed">
+          {info.description}
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const Round1Display = ({ gameState }: { gameState: GameState }) => {
     if (gameState.round1.currentStorytellerId === null) {
-      return <div className="w-full h-full flex justify-center items-center text-5xl">Waiting for storyteller...</div>;
+      return (
+        <div className="w-full h-full flex flex-col justify-center items-center bg-gray-900">
+          <div className="text-center">
+            <h1 className="text-4xl md:text-6xl lg:text-8xl font-bold text-[#F2C14E] mb-8">
+              Round 1
+            </h1>
+            <h2 className="text-3xl md:text-5xl lg:text-7xl font-bold text-white mb-8">
+              Better Call Bluff
+            </h2>
+            <p className="text-2xl md:text-3xl lg:text-4xl text-gray-300">
+              Waiting for storyteller to be selected...
+            </p>
+          </div>
+        </div>
+      );
     }
   
     const storyteller = gameState.players.find(p => p.id === gameState.round1.currentStorytellerId);
@@ -123,7 +189,7 @@ const Round1Display = ({ gameState }: { gameState: GameState }) => {
     return (
       <div 
         className={`w-full h-full flex flex-col justify-center items-center relative transition-colors duration-300
-          ${gameState.round1.showResult ? (isTruth ? 'bg-green-800' : 'bg-red-800') : 'bg-transparent'}
+          ${gameState.round1.showResult ? (isTruth ? 'bg-green-800' : 'bg-red-800') : 'bg-gray-900'}
         `}
       >
         {/* Player Info */}
@@ -133,9 +199,9 @@ const Round1Display = ({ gameState }: { gameState: GameState }) => {
               {isTruth ? 'TRUTH' : 'LIE'}
             </h1>
           )}
-          <img src={storyteller.photo} alt={storyteller.name} className="w-32 h-32 rounded-full mx-auto border-4 border-[#00A896] object-cover" />
-          <p className="text-3xl text-gray-400 mt-4">Statement from</p>
-          <h1 className="text-6xl font-bold text-[#F2C14E]">{storyteller.name}</h1>
+          <img src={storyteller.photo} alt={storyteller.name} className="w-24 h-24 md:w-32 md:h-32 lg:w-40 lg:h-40 rounded-full mx-auto border-4 border-[#00A896] object-cover" />
+          <p className="text-2xl md:text-3xl lg:text-4xl text-gray-400 mt-4">Statement from</p>
+          <h1 className="text-4xl md:text-6xl lg:text-8xl font-bold text-[#F2C14E]">{storyteller.name}</h1>
         </div>
   
         {/* Statement Box */}
@@ -144,14 +210,22 @@ const Round1Display = ({ gameState }: { gameState: GameState }) => {
                 <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#0C5D22"/>
                 <path d="M0 34.0015H107M107 34.0015L155.5 1H823L871.5 34.0015M107 34.0015L155.5 66.003H823L871.5 34.0015M871.5 34.0015H949" stroke="#FFD900"/>
             </svg>
-            <p className="absolute inset-0 flex items-center justify-center text-4xl font-semibold px-40">
+            <p className="absolute inset-0 flex items-center justify-center text-2xl md:text-4xl lg:text-5xl font-semibold px-8 md:px-20 lg:px-40">
                 {statement.statement}
             </p>
         </div>
   
         {gameState.round1.votingOpen && (
-          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-yellow-400 text-black text-4xl font-bold py-3 px-12 rounded-lg z-20">
+          <div className="mt-8 md:mt-12 lg:mt-16 text-center z-20">
+            <div className="bg-yellow-400 text-black text-2xl md:text-4xl lg:text-5xl font-bold py-2 md:py-3 px-6 md:px-12 rounded-lg mb-4 md:mb-6">
               VOTING OPEN
+            </div>
+            <div className="text-white text-xl md:text-2xl lg:text-3xl font-semibold">
+              Voting lines are now open.<br />
+              Press:<br />
+              1. For "Truth"<br />
+              2. For "Lie"
+            </div>
           </div>
         )}
       </div>
@@ -159,15 +233,15 @@ const Round1Display = ({ gameState }: { gameState: GameState }) => {
 };
 
 const LobbyScreen = ({ players }: { players: Player[] }) => (
-  <div className="w-full h-full flex flex-col justify-center items-center">
-    <div className="text-center mb-16">
-      <img src="/logo.svg" alt="Lie Hard Logo" className="w-[500px]"/>
+  <div className="w-full h-full flex flex-col justify-center items-center bg-gray-900">
+    <div className="text-center mb-8 md:mb-16">
+      <img src="/logo.svg" alt="Lie Hard Logo" className="w-[300px] md:w-[400px] lg:w-[500px]"/>
     </div>
-    <div className="flex gap-16">
+    <div className="flex flex-col md:flex-row gap-4 md:gap-8 lg:gap-16">
       {players.map(player => (
         <div key={player.id} className="text-center">
-          <img src={player.photo} alt={player.name} className="w-40 h-40 rounded-full border-4 border-[#00A896] object-cover" />
-          <h2 className="mt-4 text-3xl font-semibold text-white">{player.name}</h2>
+          <img src={player.photo} alt={player.name} className="w-24 h-24 md:w-32 md:h-32 lg:w-40 lg:h-40 rounded-full border-4 border-[#00A896] object-cover" />
+          <h2 className="mt-2 md:mt-4 text-xl md:text-2xl lg:text-3xl font-semibold text-white">{player.name}</h2>
         </div>
       ))}
     </div>
@@ -176,10 +250,57 @@ const LobbyScreen = ({ players }: { players: Player[] }) => (
 
 const Round2Display = ({ gameState }: { gameState: GameState }) => {
   const { players, round2 } = gameState;
-  const { guesses, actualValue, winnerId } = round2;
+  const { part, statements, revealedStatements, revealOrder, guesses, actualValue, winnerId } = round2;
 
+  // Part 1: Display Statements
+  if (part === 'STATEMENTS') {
+    // Ensure revealedStatements is properly initialized
+    const safeRevealedStatements = revealedStatements || [];
+    const safeRevealOrder = revealOrder || [];
+    const hasRevealedStatements = safeRevealedStatements.some(revealed => revealed);
+    
+    return (
+      <div className="w-full h-full flex flex-col justify-center items-center bg-gray-900">
+        {hasRevealedStatements && statements.length > 0 && (
+          <div className="text-center w-full max-w-6xl px-8">
+            <div className="space-y-4 md:space-y-6 lg:space-y-8">
+              {/* Display statements in reveal order */}
+              {safeRevealOrder.map((statementIndex) => (
+                <div 
+                  key={statementIndex} 
+                  className="relative transition-all duration-300 opacity-100"
+                >
+                  <div className="relative w-full text-center">
+                    <svg className="w-full" viewBox="0 0 949 67" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#0C5D22"/>
+                      <path d="M0 34.0015H107M107 34.0015L155.5 1H823L871.5 34.0015M107 34.0015L155.5 66.003H823L871.5 34.0015M871.5 34.0015H949" stroke="#FFD900"/>
+                    </svg>
+                    <p className="absolute inset-0 flex items-center justify-center text-lg md:text-2xl lg:text-3xl font-semibold px-8 md:px-20 lg:px-40">
+                      {statements[statementIndex]}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {!hasRevealedStatements && (
+          <div className="text-center">
+            <h1 className="text-4xl md:text-6xl lg:text-8xl font-bold text-[#F2C14E]">
+              Round 2: Phone Out, Cash In
+            </h1>
+            <p className="text-2xl md:text-3xl lg:text-4xl text-gray-300 mt-8">
+              Waiting for statements to be displayed...
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Part 2: Guessing
   return (
-    <div className="w-full h-full flex flex-col justify-center items-center">
+    <div className="w-full h-full flex flex-col justify-center items-center bg-gray-900">
       <div className="grid grid-cols-2 gap-x-16 gap-y-8">
         {players.map(player => (
           <div 
@@ -211,37 +332,93 @@ const Round2Display = ({ gameState }: { gameState: GameState }) => {
 const Round3Display = ({ gameState }: { gameState: GameState }) => {
   const { players, round3 } = gameState;
   const storyteller = players.find(p => p.id === round3.currentStorytellerId);
-  const set = round3.sets.find(s => s.playerId === round3.currentStorytellerId);
 
-  if (!storyteller || !set) return <div>Error: Data not found for Round 3.</div>;
+  if (!storyteller || !round3.currentStatements || round3.currentStatements.length === 0) {
+    return (
+      <div className="w-full h-full flex flex-col justify-center items-center bg-gray-900">
+        <div className="text-center">
+          <h1 className="text-4xl md:text-6xl lg:text-8xl font-bold text-[#F2C14E] mb-8">
+            Round 3: Catch Me If You Can
+          </h1>
+          <p className="text-2xl md:text-3xl lg:text-4xl text-gray-300">
+            Waiting for storyteller to be selected...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="text-center relative w-full h-full flex flex-col justify-center items-center">
-      <div className="flex items-center justify-center gap-4 mb-8">
-        <img src={storyteller.photo} alt={storyteller.name} className="w-20 h-20 rounded-full border-2 border-[#00A896]" />
-        <h2 className="text-3xl">Storyteller: {storyteller.name}</h2>
+    <div className="w-full h-full flex flex-col justify-center items-center bg-gray-900">
+      {/* Storyteller Info */}
+      <div className="flex items-center justify-center gap-4 mb-8 md:mb-12 lg:mb-16">
+        <img src={storyteller.photo} alt={storyteller.name} className="w-16 h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 rounded-full border-2 border-[#00A896] object-cover" />
+        <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white">Storyteller: {storyteller.name}</h2>
       </div>
-      <div className="flex gap-8 justify-center">
-        {set.statements.map((statement, index) => {
-          const isTrue = index === set.trueIndex;
-          const showAsTrue = round3.showResult && isTrue;
-          const showAsFalse = round3.showResult && !isTrue;
 
-          return (
-            <div 
-              key={index} 
-              className={`p-8 border-2 rounded-lg w-96 h-96 flex flex-col justify-center items-center shadow-lg transition-all duration-500
-                ${showAsTrue ? 'bg-green-500 border-green-300 scale-105' : 'bg-black bg-opacity-30 border-[#00A896]'}
-                ${showAsFalse ? 'opacity-50' : ''}
-              `}
-            >
-              <div className="text-7xl font-bold text-[#F2C14E] mb-6">{index + 1}</div>
-              <p className="text-3xl">{statement}</p>
-            </div>
-          );
-        })}
+      {/* Statements Display */}
+      <div className="text-center w-full max-w-6xl px-8">
+        <div className="space-y-4 md:space-y-6 lg:space-y-8">
+          {round3.currentStatements.map((statement, index) => {
+            const isTrue = index === round3.trueIndex;
+            const showAsTrue = round3.showResult && isTrue;
+            
+            return (
+              <div 
+                key={index} 
+                className={`relative transition-all duration-500 ${
+                  showAsTrue ? 'scale-105' : ''
+                }`}
+              >
+                <div className="relative w-full text-center">
+                  <svg 
+                    className={`w-full ${showAsTrue ? 'animate-pulse' : ''}`} 
+                    style={showAsTrue ? {
+                      filter: 'drop-shadow(0 0 20px #22C55E) drop-shadow(0 0 30px #22C55E) drop-shadow(0 0 40px #22C55E)'
+                    } : {}}
+                    viewBox="0 0 949 67" 
+                    fill="none" 
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#0C5D22"/>
+                    <path 
+                      d="M0 34.0015H107M107 34.0015L155.5 1H823L871.5 34.0015M107 34.0015L155.5 66.003H823L871.5 34.0015M871.5 34.0015H949" 
+                      stroke={showAsTrue ? "#22C55E" : "#FFD900"}
+                      strokeWidth={showAsTrue ? "4" : "2"}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-start px-8 md:px-20 lg:px-40">
+                    <span className="text-lg md:text-2xl lg:text-3xl font-bold text-[#F2C14E] mr-4 md:mr-6 lg:mr-8">
+                      {index + 1}.
+                    </span>
+                    <p className="text-lg md:text-2xl lg:text-3xl font-semibold text-white flex-1 text-left">
+                      {statement}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-      {round3.votingOpen && <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-green-500 text-white py-2 px-8 rounded-lg font-bold">VOTING OPEN</div>}
+
+
+
+      {/* Voting Open Message */}
+      {round3.votingOpen && (
+        <div className="mt-8 md:mt-12 lg:mt-16 text-center z-20">
+          <div className="bg-yellow-400 text-black text-2xl md:text-4xl lg:text-5xl font-bold py-2 md:py-3 px-6 md:px-12 rounded-lg mb-4 md:mb-6">
+            VOTING OPEN
+          </div>
+          <div className="text-white text-xl md:text-2xl lg:text-3xl font-semibold">
+            Voting lines are now open.<br />
+            Press:<br />
+            1. For "Statement 1"<br />
+            2. For "Statement 2"<br />
+            3. For "Statement 3"
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -252,7 +429,7 @@ const Round4Display = ({ gameState }: { gameState: GameState }) => {
   const realOwner = players.find(p => p.id === round4.realOwnerId);
 
   return (
-    <div className="text-center relative w-full h-full flex flex-col justify-center items-center">
+    <div className="text-center relative w-full h-full flex flex-col justify-center items-center bg-gray-900">
       <div className="bg-black bg-opacity-30 p-8 border-2 border-[#E94560] rounded-lg shadow-xl">
         <img src={round4.objectImage} alt={round4.objectTitle} className="max-w-md max-h-96 mx-auto" />
         <h2 className="text-4xl font-semibold mt-6 text-[#F2C14E]">{round4.objectTitle}</h2>
@@ -281,7 +458,7 @@ const LeaderboardModal = ({ players }: { players: Player[] }) => (
     <div className="grid grid-cols-2 gap-x-32 gap-y-12">
       {players.sort((a, b) => b.score - a.score).map(player => (
         <div key={player.id} className="flex items-center gap-8 w-[500px]">
-          <img src={player.photo} alt={player.name} className="w-32 h-32 rounded-full border-4 border-blue-400" />
+          <img src={player.photo} alt={player.name} className="w-32 h-32 rounded-full border-4 border-blue-400 object-cover shadow-xl" />
           <div className="text-left">
             <h2 className="text-5xl font-bold">{player.name}</h2>
             <p className="text-4xl text-gray-300">{player.score} Points</p>
@@ -294,26 +471,53 @@ const LeaderboardModal = ({ players }: { players: Player[] }) => (
 
 const Scoreboard = ({ players, gameState }: { players: Player[], gameState: GameState }) => {
     return (
-        <aside className="w-[10%] p-4 bg-black bg-opacity-20 border-l-2 border-white border-opacity-20">
+        <aside className="w-[10%] p-4 bg-gray-900 border-l-2 border-white border-opacity-20">
             <h2 className="text-center text-3xl font-bold mb-6 text-[#F2C14E]">Players</h2>
             <div className="grid gap-4">
                 {players.map(player => {
-                    const guess = gameState.round1.guesses ? gameState.round1.guesses[player.id] : '';
-                    const isStoryteller = player.id === gameState.round1.currentStorytellerId;
+                    const round1Guess = gameState.round1.guesses ? gameState.round1.guesses[player.id] : '';
+                    const isRound1Storyteller = player.id === gameState.round1.currentStorytellerId;
+                    
+                    // Round 3 specific logic
+                    const isRound3Storyteller = gameState.currentRound === 'R3' && player.id === gameState.round3.currentStorytellerId;
+                    const round3Guess = gameState.currentRound === 'R3' && gameState.round3.nonPlayerGuesses ? 
+                        gameState.round3.nonPlayerGuesses[player.id] : null;
 
                     return (
-                        <div key={player.id} className={`p-2 rounded-lg transition-all ${isStoryteller ? 'bg-yellow-400 text-black' : ''}`}>
+                        <div key={player.id} className={`p-2 rounded-lg transition-all ${
+                            isRound1Storyteller || isRound3Storyteller ? 'bg-yellow-400 text-black' : ''
+                        }`}>
                             <div className="flex items-center gap-3">
-                                <img src={player.photo} alt={player.name} className="w-12 h-12 rounded-full object-cover border-2 border-gray-400" />
+                                <img src={player.photo} alt={player.name} className="w-12 h-12 rounded-full object-cover border-2 border-gray-400 shadow-lg flex-shrink-0" />
                                 <div>
-                                    <p className={`font-bold text-lg ${isStoryteller ? 'text-black' : 'text-white'}`}>{player.name}</p>
-                                    <p className={`text-lg ${isStoryteller ? 'text-gray-800' : 'text-gray-300'}`}>{player.score}</p>
+                                    <p className={`font-bold text-lg ${isRound1Storyteller || isRound3Storyteller ? 'text-black' : 'text-white'}`}>{player.name}</p>
+                                    <p className={`text-lg ${isRound1Storyteller || isRound3Storyteller ? 'text-gray-800' : 'text-gray-300'}`}>{player.score}</p>
                                 </div>
                             </div>
-                            {!isStoryteller && guess && (
+                            
+                            {/* Round 1 Guess */}
+                            {gameState.currentRound === 'R1' && !isRound1Storyteller && round1Guess && (
                                 <div className="mt-2 text-center">
-                                    <span className={`px-3 py-1 text-sm font-bold rounded-full ${guess === 'TRUE' ? 'bg-green-500' : 'bg-red-500'}`}>
-                                        {guess}
+                                    <span className={`px-3 py-1 text-sm font-bold rounded-full ${round1Guess === 'TRUE' ? 'bg-green-500' : 'bg-red-500'}`}>
+                                        {round1Guess}
+                                    </span>
+                                </div>
+                            )}
+                            
+                            {/* Round 3 Guess */}
+                            {gameState.currentRound === 'R3' && !isRound3Storyteller && round3Guess !== null && (
+                                <div className="mt-2 text-center">
+                                    <span className="px-3 py-1 text-sm font-bold rounded-full bg-blue-500 text-white">
+                                        {round3Guess + 1}
+                                    </span>
+                                </div>
+                            )}
+                            
+                            {/* Round 3 Storyteller indicator */}
+                            {gameState.currentRound === 'R3' && isRound3Storyteller && (
+                                <div className="mt-2 text-center">
+                                    <span className="px-3 py-1 text-sm font-bold rounded-full bg-yellow-500 text-black">
+                                        Storyteller
                                     </span>
                                 </div>
                             )}

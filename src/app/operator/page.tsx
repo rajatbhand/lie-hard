@@ -26,6 +26,7 @@ interface GameState {
   players: Player[];
   showScoreboard: boolean;
   showLeaderboardModal: boolean;
+  roundStarted: boolean; // Whether the current round has been started (shows intro vs actual content)
   round1: {
     statements: Round1Statement[];
     currentStorytellerId: number | null;
@@ -34,6 +35,10 @@ interface GameState {
     showResult: boolean;
   };
   round2: {
+    statements: string[]; // Array of 5 statements for part 1
+    revealedStatements: boolean[]; // Array of 5 booleans for which statements are revealed
+    revealOrder: number[]; // Array to track the order statements were revealed
+    part: 'STATEMENTS' | 'GUESSING'; // Current part of round 2
     guesses: { [key: number]: number | null };
     actualValue: number | null;
     winnerId: number | null;
@@ -44,9 +49,13 @@ interface GameState {
       statements: string[];
       trueIndex: number;
     }[];
-    currentStorytellerId: number;
+    currentStorytellerId: number | null;
+    currentStatements: string[]; // Current storyteller's 3 statements
+    trueIndex: number; // Which statement is true (0, 1, or 2)
+    nonPlayerGuesses: { [key: number]: number | null }; // Non-storyteller players' guesses (0, 1, or 2)
     votingOpen: boolean;
     showResult: boolean;
+    completedStorytellers: number[]; // Array of player IDs who have completed their turn
   };
   round4: {
     objectTitle: string;
@@ -72,6 +81,7 @@ const initialGameState: GameState = {
   players: initialPlayers,
   showScoreboard: true,
   showLeaderboardModal: false,
+  roundStarted: false,
   round1: {
     statements: [], // Now starts empty
     currentStorytellerId: null, // Changed from 1 to null
@@ -80,15 +90,23 @@ const initialGameState: GameState = {
     showResult: false,
   },
   round2: {
+    statements: [], // Empty array for statements
+    revealedStatements: [false, false, false, false, false], // All statements hidden initially
+    revealOrder: [], // Empty array for reveal order
+    part: 'STATEMENTS', // Start with statements part
     guesses: { 1: null, 2: null, 3: null, 4: null },
     actualValue: null,
     winnerId: null,
   },
   round3: {
     sets: [], // Now starts empty
-    currentStorytellerId: 1,
+    currentStorytellerId: null,
+    currentStatements: [],
+    trueIndex: 0,
+    nonPlayerGuesses: { 1: null, 2: null, 3: null, 4: null },
     votingOpen: false,
     showResult: false,
+    completedStorytellers: [],
   },
   round4: {
     objectTitle: "A Well-Loved Stuffed Bear",
@@ -106,6 +124,7 @@ export default function OperatorPage() {
   const [r2ActualValue, setR2ActualValue] = useState<string>('');
   const [r3CorrectGuessers, setR3CorrectGuessers] = useState<Record<number, boolean>>({});
   const [round1Data, setRound1Data] = useState<Round1Statement[]>([]);
+  const [round2Data, setRound2Data] = useState<string[]>([]); // For Round 2 statements
   const [round3Data, setRound3Data] = useState<any[]>([]); // Using 'any' for now for R3 structure
 
   useEffect(() => {
@@ -144,6 +163,36 @@ export default function OperatorPage() {
     } catch (e) {
       console.error("Error updating Round 1 state: ", e);
       alert("Error updating Round 1 state");
+    }
+  };
+
+  const updateRound2State = async (newRound2State: object) => {
+    try {
+      const docRef = doc(db, "gameState", "live");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const currentGameState = docSnap.data() as GameState;
+        const updatedRound2State = { ...currentGameState.round2, ...newRound2State };
+        await updateDoc(docRef, { round2: updatedRound2State });
+      }
+    } catch (e) {
+      console.error("Error updating Round 2 state: ", e);
+      alert("Error updating Round 2 state");
+    }
+  };
+
+  const updateRound3State = async (newRound3State: object) => {
+    try {
+      const docRef = doc(db, "gameState", "live");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const currentGameState = docSnap.data() as GameState;
+        const updatedRound3State = { ...currentGameState.round3, ...newRound3State };
+        await updateDoc(docRef, { round3: updatedRound3State });
+      }
+    } catch (e) {
+      console.error("Error updating Round 3 state: ", e);
+      alert("Error updating Round 3 state");
     }
   };
 
@@ -262,7 +311,7 @@ export default function OperatorPage() {
     }
   };
 
-  const handleFileParse = (event: ChangeEvent<HTMLInputElement>, round: 'R1' | 'R3') => {
+  const handleFileParse = (event: ChangeEvent<HTMLInputElement>, round: 'R1' | 'R2' | 'R3') => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -280,6 +329,10 @@ export default function OperatorPage() {
             }));
             setRound1Data(processedData as Round1Statement[]);
             alert(`Round 1: ${processedData.length} statements loaded.`);
+          } else if (round === 'R2') {
+            const processedData = results.data.map((row: any) => row.statement);
+            setRound2Data(processedData);
+            alert(`Round 2: ${processedData.length} statements loaded.`);
           } else if (round === 'R3') {
             const processedData = results.data.map((row: any) => ({
               playerId: parseInt(row.playerId, 10),
@@ -301,8 +354,8 @@ export default function OperatorPage() {
   };
 
   const importCsvData = async () => {
-    if (round1Data.length === 0 || round3Data.length === 0) {
-      alert("Please upload files for both Round 1 and Round 3 before importing.");
+    if (round1Data.length === 0 || round2Data.length === 0 || round3Data.length === 0) {
+      alert("Please upload files for Round 1, Round 2, and Round 3 before importing.");
       return;
     }
     try {
@@ -311,6 +364,7 @@ export default function OperatorPage() {
       
       // Overwrite the statement and set arrays with the parsed data
       newGameState.round1.statements = round1Data;
+      newGameState.round2.statements = round2Data;
       newGameState.round3.sets = round3Data;
 
       // Overwrite the entire document in Firebase for a more robust update
@@ -377,8 +431,7 @@ export default function OperatorPage() {
 
   // NEW: Saves a guess without scoring
   const handleR1GuessChange = async (guesserId: number, guess: 'TRUE' | 'LIE' | '') => {
-    const newGuess = guess === '' ? null : guess;
-    await updateGameState({ [`round1.guesses.${guesserId}`]: newGuess });
+    await updateGameState({ [`round1.guesses.${guesserId}`]: guess });
   };
   
   // MODIFIED: Now handles both revealing and scoring
@@ -408,6 +461,135 @@ export default function OperatorPage() {
     alert("Result revealed and scores awarded!");
   };
 
+  // NEW: Reset everything when selecting a new storyteller
+  const selectStorytellerAndReset = async (playerId: number) => {
+    await updateRound1State({ 
+      currentStorytellerId: playerId,
+      votingOpen: false,
+      showResult: false,
+      guesses: { 1: '', 2: '', 3: '', 4: '' }
+    });
+  };
+
+  // NEW: Round 2 functions
+  const toggleStatementVisibility = async (index: number) => {
+    if (!gameState) return;
+    const currentRevealedStatements = gameState.round2.revealedStatements || [false, false, false, false, false];
+    const currentRevealOrder = gameState.round2.revealOrder || [];
+    const newRevealedStatements = [...currentRevealedStatements];
+    
+    if (newRevealedStatements[index]) {
+      // If statement is being hidden, remove from reveal order
+      newRevealedStatements[index] = false;
+      const newRevealOrder = currentRevealOrder.filter((i: number) => i !== index);
+      await updateRound2State({ 
+        revealedStatements: newRevealedStatements,
+        revealOrder: newRevealOrder
+      });
+    } else {
+      // If statement is being revealed, add to reveal order
+      newRevealedStatements[index] = true;
+      const newRevealOrder = [...currentRevealOrder, index];
+      await updateRound2State({ 
+        revealedStatements: newRevealedStatements,
+        revealOrder: newRevealOrder
+      });
+    }
+  };
+
+  // NEW: Round 3 functions
+  const selectStoryteller = async (playerId: number) => {
+    if (!gameState) return;
+    
+    // Find the storyteller's data from the sets
+    const storytellerData = gameState.round3.sets.find(set => set.playerId === playerId);
+    if (!storytellerData) return;
+    
+    // Update round 3 state with selected storyteller
+    await updateRound3State({
+      currentStorytellerId: playerId,
+      currentStatements: storytellerData.statements,
+      trueIndex: storytellerData.trueIndex,
+      nonPlayerGuesses: { 1: null, 2: null, 3: null, 4: null }, // Reset guesses
+      votingOpen: false,
+      showResult: false
+    });
+  };
+
+  const updateNonPlayerGuess = async (playerId: number, guess: number | null) => {
+    if (!gameState) return;
+    const newGuesses = { ...gameState.round3.nonPlayerGuesses };
+    newGuesses[playerId] = guess;
+    await updateRound3State({ nonPlayerGuesses: newGuesses });
+  };
+
+  const openVoting = async () => {
+    if (!gameState) return;
+    await updateRound3State({ votingOpen: true });
+  };
+
+  const closeVoting = async () => {
+    if (!gameState) return;
+    await updateRound3State({ votingOpen: false });
+  };
+
+  const revealResult = async () => {
+    if (!gameState) return;
+    
+    // Calculate points
+    const correctGuessers: number[] = [];
+    const nonStorytellerIds = [1, 2, 3, 4].filter(id => id !== gameState.round3.currentStorytellerId);
+    const safeNonPlayerGuesses = gameState.round3.nonPlayerGuesses || { 1: null, 2: null, 3: null, 4: null };
+    
+    nonStorytellerIds.forEach(playerId => {
+      if (safeNonPlayerGuesses[playerId] === gameState.round3.trueIndex) {
+        correctGuessers.push(playerId);
+      }
+    });
+    
+    // Update player scores
+    const updatedPlayers = [...gameState.players];
+    if (correctGuessers.length > 0) {
+      // Non-players who guessed correctly get 3 points each
+      correctGuessers.forEach(playerId => {
+        const playerIndex = updatedPlayers.findIndex(p => p.id === playerId);
+        if (playerIndex !== -1) {
+          updatedPlayers[playerIndex].score += 3;
+        }
+      });
+    } else {
+      // If no one guessed correctly, storyteller gets points
+      const storytellerIndex = updatedPlayers.findIndex(p => p.id === gameState.round3.currentStorytellerId);
+      if (storytellerIndex !== -1) {
+        updatedPlayers[storytellerIndex].score += 3;
+      }
+    }
+    
+    // Add current storyteller to completed list
+    const updatedCompletedStorytellers = [...(gameState.round3.completedStorytellers || []), gameState.round3.currentStorytellerId];
+    
+    await updateGameState({ 
+      players: updatedPlayers,
+      round3: { ...gameState.round3, showResult: true, completedStorytellers: updatedCompletedStorytellers }
+    });
+  };
+
+  const moveToGuessingPart = async () => {
+    await updateRound2State({ part: 'GUESSING' });
+  };
+
+  // NEW: Start round functions
+  const startRound = async (round: 'R1' | 'R2' | 'R3' | 'R4') => {
+    await updateGameState({ 
+      currentRound: round,
+      roundStarted: false // Start with intro screen
+    });
+  };
+
+  const startRoundContent = async () => {
+    await updateGameState({ roundStarted: true });
+  };
+
   const roundOrder = ["LOBBY", "R1", "R2", "R3", "R4", "WINNER"];
   const currentRoundIndex = gameState ? roundOrder.indexOf(gameState.currentRound) : 0;
 
@@ -422,11 +604,16 @@ export default function OperatorPage() {
       {/* --- Pre-Show Data Upload --- */}
       <fieldset className={sectionClasses}>
         <legend className={h2Classes}>Pre-Show Data Upload</legend>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-4 items-start">
+        <div className="grid grid-cols-3 gap-x-8 gap-y-4 items-start">
           <div>
             <label className="font-bold block mb-1">Round 1 Statements CSV</label>
             <input type="file" accept=".csv" onChange={(e) => handleFileParse(e, 'R1')} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
             <a href="/round1_sample.csv" download className="text-sm text-blue-600 hover:underline mt-1 block">Download Round 1 Sample CSV</a>
+          </div>
+          <div>
+            <label className="font-bold block mb-1">Round 2 Statements CSV</label>
+            <input type="file" accept=".csv" onChange={(e) => handleFileParse(e, 'R2')} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"/>
+            <a href="/round2_sample.csv" download className="text-sm text-green-600 hover:underline mt-1 block">Download Round 2 Sample CSV</a>
           </div>
           <div>
             <label className="font-bold block mb-1">Round 3 Sets CSV</label>
@@ -466,10 +653,10 @@ export default function OperatorPage() {
       <div className={sectionClasses}>
         <h2 className={h2Classes}>Game Controls</h2>
         <button onClick={initializeGame} className={buttonClasses.secondary}>Reset to Lobby</button>
-        {currentRoundIndex < 1 && <button onClick={() => updateGameState({ currentRound: 'R1' })} className={buttonClasses.primary}>Start Round 1</button>}
-        {currentRoundIndex < 2 && <button onClick={() => updateGameState({ currentRound: 'R2' })} className={buttonClasses.primary} disabled={currentRoundIndex < 1}>Start Round 2</button>}
-        {currentRoundIndex < 3 && <button onClick={() => updateGameState({ currentRound: 'R3' })} className={buttonClasses.primary} disabled={currentRoundIndex < 2}>Start Round 3</button>}
-        {currentRoundIndex < 4 && <button onClick={() => updateGameState({ currentRound: 'R4' })} className={buttonClasses.primary} disabled={currentRoundIndex < 3}>Start Round 4</button>}
+        {currentRoundIndex < 1 && <button onClick={() => startRound('R1')} className={buttonClasses.primary}>Start Round 1</button>}
+        {currentRoundIndex < 2 && <button onClick={() => startRound('R2')} className={buttonClasses.primary} disabled={currentRoundIndex < 1}>Start Round 2</button>}
+        {currentRoundIndex < 3 && <button onClick={() => startRound('R3')} className={buttonClasses.primary} disabled={currentRoundIndex < 2}>Start Round 3</button>}
+        {currentRoundIndex < 4 && <button onClick={() => startRound('R4')} className={buttonClasses.primary} disabled={currentRoundIndex < 3}>Start Round 4</button>}
         {currentRoundIndex < 5 && <button onClick={() => updateGameState({ currentRound: 'WINNER' })} className={buttonClasses.primary} disabled={currentRoundIndex < 4}>Show Winner</button>}
       </div>
 
@@ -478,24 +665,25 @@ export default function OperatorPage() {
         <fieldset className={sectionClasses} disabled={currentRoundIndex > 1}>
           <legend className={h2Classes}>Round 1: Better Call Bluff</legend>
           
+          {!gameState.roundStarted && (
+            <div className="mb-6">
+              <button onClick={startRoundContent} className={buttonClasses.primary}>
+                Start Round 1 Content
+              </button>
+            </div>
+          )}
+          
               {/* Storyteller Selection */}
               <div>
                 <strong className={strongClasses}>1. Select Storyteller:</strong>
                 {initialPlayers.map(p => (
-                  <button key={p.id} onClick={() => updateRound1State({ currentStorytellerId: p.id })} className={buttonClasses.secondary}>{p.name}</button>
+                  <button key={p.id} onClick={() => selectStorytellerAndReset(p.id)} className={buttonClasses.secondary}>{p.name}</button>
                 ))}
               </div>
 
-              {/* Voting Controls */}
-              <div className="my-4">
-                <strong className={strongClasses}>2. Control Voting:</strong>
-                <button onClick={() => updateRound1State({ votingOpen: true })} className={buttonClasses.secondary} disabled={!gameState.round1.currentStorytellerId}>Open Voting</button>
-                <button onClick={() => updateRound1State({ votingOpen: false })} className={buttonClasses.secondary} disabled={!gameState.round1.votingOpen}>Close Voting</button>
-              </div>
-
               {/* Guesser Inputs */}
-              <div>
-                <strong className={strongClasses}>3. Log Guesses:</strong>
+              <div className="my-4">
+                <strong className={strongClasses}>2. Log Guesses:</strong>
                 <div className="my-2 grid grid-cols-3 gap-4">
                   {initialPlayers.filter(p => p.id !== gameState.round1.currentStorytellerId).map(guesser => (
                     <div key={guesser.id} className="flex items-center gap-2">
@@ -504,15 +692,22 @@ export default function OperatorPage() {
                         onChange={(e) => handleR1GuessChange(guesser.id, e.target.value as any)}
                         value={gameState.round1.guesses?.[guesser.id] ?? ''}
                         className="p-2 border rounded"
-                        disabled={!gameState.round1.votingOpen}
+                        disabled={gameState.round1.votingOpen}
                       >
                         <option value="">-- Select --</option>
-                        <option value="TRUE">Truth</option>
-                        <option value="LIE">Lie</option>
+                        <option value="TRUE">True</option>
+                        <option value="LIE">False</option>
                       </select>
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Voting Controls */}
+              <div className="my-4">
+                <strong className={strongClasses}>3. Control Voting:</strong>
+                <button onClick={() => updateRound1State({ votingOpen: true })} className={buttonClasses.secondary} disabled={!gameState.round1.currentStorytellerId}>Open Voting</button>
+                <button onClick={() => updateRound1State({ votingOpen: false })} className={buttonClasses.secondary} disabled={!gameState.round1.votingOpen}>Close Voting</button>
               </div>
 
               {/* Reveal Control */}
@@ -520,6 +715,8 @@ export default function OperatorPage() {
                 <strong className={strongClasses}>4. Reveal & Score:</strong>
                 <button onClick={revealAndScoreR1} className={buttonClasses.primary} disabled={gameState.round1.votingOpen}>Reveal Truth/Lie</button>
               </div>
+
+
         </fieldset>
       )}
 
@@ -527,33 +724,93 @@ export default function OperatorPage() {
       {currentRoundIndex >= 2 && (
         <fieldset className={sectionClasses} disabled={currentRoundIndex > 2}>
           <legend className={h2Classes}>Round 2: Phone Out, Cash In</legend>
-          <div className="grid grid-cols-2 gap-4">
-            {initialPlayers.map(p => (
-              <div key={p.id}>
-                <label className="font-bold">{p.name}'s Guess (₹):</label>
-                <input 
-                  type="number"
-                  className="w-full p-2 border rounded mt-1"
-                  value={r2Guesses[p.id] ?? ''}
-                  onChange={(e) => setR2Guesses(prev => ({ ...prev, [p.id]: e.target.value }))}
-                  onBlur={(e) => handleR2GuessChange(p.id, e.target.value)}
-                />
-              </div>
-            ))}
-            <div>
-              <label className="font-bold">Actual Resale Value (₹):</label>
-              <input 
-                type="number" 
-                className="w-full p-2 border rounded mt-1"
-                value={r2ActualValue}
-                onChange={(e) => setR2ActualValue(e.target.value)}
-              />
+          
+          {!gameState.roundStarted && (
+            <div className="mb-6">
+              <button onClick={startRoundContent} className={buttonClasses.primary}>
+                Start Round 2 Content
+              </button>
             </div>
-          </div>
-          <div className="mt-4">
-            <button onClick={revealR2ActualValue} className={buttonClasses.secondary}>Reveal Actual Value</button>
-            <button onClick={revealR2Winner} className={buttonClasses.secondary}>Reveal Winner & Award +4</button>
-          </div>
+          )}
+          
+          {/* Part 1: Statements */}
+          {gameState?.round2.part === 'STATEMENTS' && (
+            <div>
+              <strong className={strongClasses}>Part 1: Display Statements</strong>
+              
+              {/* Statement List with Switches */}
+              <div className="my-4">
+                <p className="text-sm text-gray-600 mb-2">Toggle statements to show on audience:</p>
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {gameState.round2.statements.map((statement, index) => {
+                    const safeRevealedStatements = gameState.round2.revealedStatements || [false, false, false, false, false];
+                    return (
+                      <div key={index} className="flex items-start gap-3 p-3 border rounded bg-gray-50">
+                        <div className="flex items-center">
+                          <button
+                            onClick={() => toggleStatementVisibility(index)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                              safeRevealedStatements[index] ? 'bg-blue-600' : 'bg-gray-300'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                safeRevealedStatements[index] ? 'translate-x-6' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                                              <div className="flex-1">
+                          <span className="text-sm font-semibold text-gray-600">Statement {index + 1}:</span>
+                          <p className="text-sm text-gray-800 mt-1">{statement}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  </div>
+              </div>
+              
+              <div className="mt-6">
+                <button onClick={moveToGuessingPart} className={buttonClasses.primary}>
+                  Move to Guessing Part
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Part 2: Guessing */}
+          {gameState?.round2.part === 'GUESSING' && (
+            <div>
+              <strong className={strongClasses}>Part 2: Value Guessing</strong>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                {initialPlayers.map(p => (
+                  <div key={p.id}>
+                    <label className="font-bold">{p.name}'s Guess (₹):</label>
+                    <input 
+                      type="number"
+                      className="w-full p-2 border rounded mt-1"
+                      value={r2Guesses[p.id] ?? ''}
+                      onChange={(e) => setR2Guesses(prev => ({ ...prev, [p.id]: e.target.value }))}
+                      onBlur={(e) => handleR2GuessChange(p.id, e.target.value)}
+                    />
+                  </div>
+                ))}
+                <div>
+                  <label className="font-bold">Actual Resale Value (₹):</label>
+                  <input 
+                    type="number" 
+                    className="w-full p-2 border rounded mt-1"
+                    value={r2ActualValue}
+                    onChange={(e) => setR2ActualValue(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="mt-4">
+                <button onClick={revealR2ActualValue} className={buttonClasses.secondary}>Reveal Actual Value</button>
+                <button onClick={revealR2Winner} className={buttonClasses.secondary}>Reveal Winner & Award +4</button>
+              </div>
+            </div>
+          )}
         </fieldset>
       )}
 
@@ -561,31 +818,132 @@ export default function OperatorPage() {
       {currentRoundIndex >= 3 && (
         <fieldset className={sectionClasses} disabled={currentRoundIndex > 3}>
           <legend className={h2Classes}>Round 3: Catch Me If You Can</legend>
-          <div>
-            <strong className={strongClasses}>Storyteller:</strong>
-            {initialPlayers.map(p => (
-              <button key={p.id} onClick={() => updateGameState({ 'round3.currentStorytellerId': p.id })} className={buttonClasses.secondary}>
-                {p.name}
+          
+          {!gameState.roundStarted && (
+            <div className="mb-6">
+              <button onClick={startRoundContent} className={buttonClasses.primary}>
+                Start Round 3 Content
               </button>
-            ))}
-          </div>
-          <div className="my-4">
-            <button onClick={() => updateGameState({ 'round3.votingOpen': true, 'round3.showResult': false })} className={buttonClasses.secondary}>Open Voting</button>
-            <button onClick={() => updateGameState({ 'round3.votingOpen': false })} className={buttonClasses.secondary}>Close Voting</button>
-            <button onClick={() => updateGameState({ 'round3.showResult': true })} className={buttonClasses.secondary}>Reveal True Statement</button>
-          </div>
-          <div>
-            <strong className={strongClasses}>Correct Guessers:</strong>
-            <div className="my-2">
-              {initialPlayers.map(p => (
-                <label key={p.id} className="mr-4 inline-flex items-center">
-                  <input type="checkbox" onChange={(e) => setR3CorrectGuessers(prev => ({ ...prev, [p.id]: e.target.checked }))} checked={!!r3CorrectGuessers[p.id]} className="form-checkbox h-5 w-5" />
-                  <span className="ml-2">{p.name}</span>
-                </label>
-              ))}
             </div>
-            <button onClick={awardPointsR3} className={buttonClasses.secondary}>Award +3 Points</button>
-          </div>
+          )}
+
+          {gameState.roundStarted && (
+            <div>
+              {/* Storyteller Selection */}
+              {!gameState.round3.currentStorytellerId && (
+                <div className="mb-6">
+                  <strong className={strongClasses}>Select Storyteller:</strong>
+                  <div className="mt-2 space-x-2">
+                    {initialPlayers
+                      .filter(p => !gameState.round3.completedStorytellers?.includes(p.id))
+                      .map(p => (
+                        <button 
+                          key={p.id} 
+                          onClick={() => selectStoryteller(p.id)} 
+                          className={buttonClasses.secondary}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Current Storyteller Display */}
+              {gameState.round3.currentStorytellerId && (
+                <div className="mb-6">
+                  <strong className={strongClasses}>Current Storyteller:</strong>
+                  <div className="mt-2 p-3 bg-blue-100 rounded">
+                    {initialPlayers.find(p => p.id === gameState.round3.currentStorytellerId)?.name}
+                  </div>
+                </div>
+              )}
+
+              {/* Non-Player Guesses */}
+              {gameState.round3.currentStorytellerId && !gameState.round3.votingOpen && !gameState.round3.showResult && (
+                <div className="mb-6">
+                  <strong className={strongClasses}>Non-Player Guesses:</strong>
+                  <div className="mt-2 space-y-3">
+                    {initialPlayers
+                      .filter(p => p.id !== gameState.round3.currentStorytellerId)
+                      .map(p => {
+                        const safeNonPlayerGuesses = gameState.round3.nonPlayerGuesses || { 1: null, 2: null, 3: null, 4: null };
+                        return (
+                          <div key={p.id} className="flex items-center gap-3">
+                            <span className="font-semibold w-20">{p.name}:</span>
+                            <select 
+                              className="p-2 border rounded"
+                              value={safeNonPlayerGuesses[p.id] ?? ''}
+                              onChange={(e) => updateNonPlayerGuess(p.id, e.target.value ? Number(e.target.value) : null)}
+                            >
+                              <option value="">Select...</option>
+                              <option value="0">Statement 1</option>
+                              <option value="1">Statement 2</option>
+                              <option value="2">Statement 3</option>
+                            </select>
+                          </div>
+                        );
+                      })}
+                  </div>
+                  <div className="mt-4">
+                    <button onClick={openVoting} className={buttonClasses.primary}>
+                      Open Audience Voting
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Voting Controls */}
+              {gameState.round3.votingOpen && !gameState.round3.showResult && (
+                <div className="mb-6">
+                  <strong className={strongClasses}>Audience Voting:</strong>
+                  <div className="mt-2 space-x-2">
+                    <button onClick={closeVoting} className={buttonClasses.secondary}>
+                      Close Voting
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Reveal Controls */}
+              {!gameState.round3.votingOpen && !gameState.round3.showResult && gameState.round3.currentStorytellerId && (
+                <div className="mb-6">
+                  <strong className={strongClasses}>Reveal Result:</strong>
+                  <div className="mt-2 space-x-2">
+                    <button onClick={revealResult} className={buttonClasses.primary}>
+                      Reveal Truth & Award Points
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Result Display */}
+              {gameState.round3.showResult && (
+                <div className="mb-6">
+                  <strong className={strongClasses}>Result:</strong>
+                  <div className="mt-2 p-3 bg-green-100 rounded mb-4">
+                    Result has been revealed on audience display.
+                  </div>
+                  <div className="mt-4">
+                    <strong className={strongClasses}>Select Next Storyteller:</strong>
+                    <div className="mt-2 space-x-2">
+                      {initialPlayers
+                        .filter(p => !gameState.round3.completedStorytellers?.includes(p.id))
+                        .map(p => (
+                          <button 
+                            key={p.id} 
+                            onClick={() => selectStoryteller(p.id)} 
+                            className={buttonClasses.secondary}
+                          >
+                            {p.name}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </fieldset>
       )}
 
@@ -593,6 +951,14 @@ export default function OperatorPage() {
       {currentRoundIndex >= 4 && (
         <fieldset className={sectionClasses} disabled={currentRoundIndex > 4}>
           <legend className={h2Classes}>Round 4: Faking Bad</legend>
+          
+          {!gameState.roundStarted && (
+            <div className="mb-6">
+              <button onClick={startRoundContent} className={buttonClasses.primary}>
+                Start Round 4 Content
+              </button>
+            </div>
+          )}
           <div>
             <strong className={strongClasses}>Round Winner:</strong>
             {initialPlayers.map(p => (
