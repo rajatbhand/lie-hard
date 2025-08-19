@@ -207,7 +207,7 @@ const Round1Display = ({ gameState }: { gameState: GameState }) => {
         {/* Statement Box */}
         <div className="relative w-[80%] text-center z-10">
             <svg className="w-full" viewBox="0 0 949 67" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#0C5D22"/>
+                <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#1E40AF"/>
                 <path d="M0 34.0015H107M107 34.0015L155.5 1H823L871.5 34.0015M107 34.0015L155.5 66.003H823L871.5 34.0015M871.5 34.0015H949" stroke="#FFD900"/>
             </svg>
             <p className="absolute inset-0 flex items-center justify-center text-2xl md:text-4xl lg:text-5xl font-semibold px-8 md:px-20 lg:px-40">
@@ -272,7 +272,7 @@ const Round2Display = ({ gameState }: { gameState: GameState }) => {
                 >
                   <div className="relative w-full text-center">
                     <svg className="w-full" viewBox="0 0 949 67" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#0C5D22"/>
+                      <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#1E40AF"/>
                       <path d="M0 34.0015H107M107 34.0015L155.5 1H823L871.5 34.0015M107 34.0015L155.5 66.003H823L871.5 34.0015M871.5 34.0015H949" stroke="#FFD900"/>
                     </svg>
                     <p className="absolute inset-0 flex items-center justify-center text-lg md:text-2xl lg:text-3xl font-semibold px-8 md:px-20 lg:px-40">
@@ -380,11 +380,11 @@ const Round3Display = ({ gameState }: { gameState: GameState }) => {
                     fill="none" 
                     xmlns="http://www.w3.org/2000/svg"
                   >
-                    <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill="#0C5D22"/>
+                    <path d="M155.5 1L107 34.0015L155.5 66.003H823L871.5 34.0015L823 1H155.5Z" fill={round3.showResult ? (showAsTrue ? "#22C55E" : "#DC2626") : "#1E40AF"}/>
                     <path 
                       d="M0 34.0015H107M107 34.0015L155.5 1H823L871.5 34.0015M107 34.0015L155.5 66.003H823L871.5 34.0015M871.5 34.0015H949" 
-                      stroke={showAsTrue ? "#22C55E" : "#FFD900"}
-                      strokeWidth={showAsTrue ? "4" : "2"}
+                      stroke={round3.showResult ? (showAsTrue ? "#22C55E" : "#DC2626") : "#FFD900"}
+                      strokeWidth={round3.showResult ? "4" : "2"}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-start px-8 md:px-20 lg:px-40">
