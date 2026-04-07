@@ -39,6 +39,9 @@ interface GameState {
   players: Player[];
   showScoreboard: boolean;
   showLeaderboardModal: boolean;
+  showTopVoters: boolean;
+  showScorePopup: boolean;
+  scorePopupDeltas: { name: string; delta: number }[];
   banterTimer: {
     totalSeconds: number;
     startedAt: number | null; // epoch ms — null when not running
@@ -74,10 +77,14 @@ interface GameState {
     winnerId: number | null;
   };
   audienceVotes: {
-    [deviceId: string]: {
+    [uid: string]: {
       choice: string;
       votingRound: string;
+      displayName?: string;
     };
+  };
+  voterScores: {
+    [uid: string]: { name: string; correctCount: number };
   };
 }
 
@@ -90,6 +97,9 @@ const initialGameState: GameState = {
   ],
   showScoreboard: true,
   showLeaderboardModal: false,
+  showTopVoters: false,
+  showScorePopup: false,
+  scorePopupDeltas: [],
   banterTimer: { totalSeconds: 60, startedAt: null, running: false },
   warmup: { statements: [], currentIndex: 0, audienceVotingOpen: false, showResult: false },
   segment1: {
@@ -110,6 +120,7 @@ const initialGameState: GameState = {
   },
   segment3: { photoUrl: null, photoTitle: null, audienceVotingOpen: false, showResult: false, winnerId: null },
   audienceVotes: {},
+  voterScores: {},
 };
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -165,24 +176,35 @@ interface SectionCardProps {
 function SectionCard({ id, title, currentPhase, render }: SectionCardProps) {
   const isActive = currentPhase === id;
   const isDone = PHASE_ORDER.indexOf(currentPhase) > PHASE_ORDER.indexOf(id);
+  const [expanded, setExpanded] = useState(false);
+
+  // Collapse when this segment becomes active (operator navigated here)
+  useEffect(() => { if (isActive) setExpanded(false); }, [isActive]);
+
   if (!isActive && !isDone) return null;
+
+  const showContent = isActive || expanded;
+
   return (
     <div
       className="mb-4 rounded-xl overflow-hidden"
-      style={{ border: isActive ? '2px solid #f59e0b' : '1px solid #27272a', opacity: isDone ? 0.4 : 1 }}
+      style={{ border: isActive ? '2px solid #f59e0b' : '1px solid #27272a', opacity: isDone && !expanded ? 0.5 : 1 }}
     >
       <div
         className="px-6 py-3 flex items-center justify-between"
-        style={{ backgroundColor: isActive ? '#130f00' : '#111113' }}
+        style={{ backgroundColor: isActive ? '#130f00' : '#111113', cursor: isDone ? 'pointer' : 'default' }}
+        onClick={() => { if (isDone) setExpanded((v) => !v); }}
       >
         <span className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: isActive ? '#f59e0b' : '#52525b' }}>
           {isActive ? '▶ ' : '✓ '}{title}
         </span>
         {isDone && (
-          <span className="font-mono text-sm" style={{ color: '#4ade80' }}>COMPLETED</span>
+          <span className="font-mono text-sm" style={{ color: expanded ? '#f59e0b' : '#4ade80' }}>
+            {expanded ? '▲ COLLAPSE' : '▼ EXPAND'}
+          </span>
         )}
       </div>
-      {isActive && <div className="p-6">{render()}</div>}
+      {showContent && <div className="p-6">{render()}</div>}
     </div>
   );
 }
@@ -190,13 +212,39 @@ function SectionCard({ id, title, currentPhase, render }: SectionCardProps) {
 // ── Vote/open button pair ──────────────────────────────────────────────────
 
 
+// ── Top Voters Panel ───────────────────────────────────────────────────────
+
+function TopVotersPanel({ voterScores }: { voterScores: GameState['voterScores'] }) {
+  const sorted = Object.entries(voterScores)
+    .sort(([, a], [, b]) => b.correctCount - a.correctCount)
+    .slice(0, 3);
+
+  if (sorted.length === 0) {
+    return <p className="font-mono text-xs px-1 pt-1" style={{ color: '#3f3f46' }}>No data yet</p>;
+  }
+
+  const medals = ['🥇', '🥈', '🥉'];
+  return (
+    <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+      {sorted.map(([uid, data], rank) => (
+        <div key={uid} className="flex items-center gap-2">
+          <span className="text-base shrink-0">{medals[rank]}</span>
+          <span className="font-mono text-sm flex-1 truncate" style={{ color: '#e4e4e7' }}>{data.name}</span>
+          <span className="font-mono text-sm font-bold shrink-0" style={{ color: '#f59e0b' }}>{data.correctCount} ✓</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export default function OperatorPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
 
-  const [playerNames, setPlayerNames] = useState(['Player 1', 'Player 2', 'Player 3']);
-  const [playerPhotos, setPlayerPhotos] = useState<string[]>(['', '', '']);
+  const [playerCount, setPlayerCount] = useState(0);
+  const [playerNames, setPlayerNames] = useState<string[]>([]);
+  const [playerPhotos, setPlayerPhotos] = useState<string[]>([]);
   const [warmupData, setWarmupData] = useState<WarmupStatement[]>([]);
   const [seg1Data, setSeg1Data] = useState<Segment1Statement[]>([]);
   const [seg2Data, setSeg2Data] = useState<Segment2Statement[]>([]);
@@ -226,6 +274,12 @@ export default function OperatorPage() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Resize player name/photo arrays when count changes
+  useEffect(() => {
+    setPlayerNames((prev) => Array.from({ length: playerCount }, (_, i) => prev[i] ?? `Player ${i + 1}`));
+    setPlayerPhotos((prev) => Array.from({ length: playerCount }, (_, i) => prev[i] ?? ''));
+  }, [playerCount]);
 
   useEffect(() => {
     setSeg1Preview(null);
@@ -265,6 +319,24 @@ export default function OperatorPage() {
       alert('Error updating game state. Check console.');
     }
   };
+
+  // ── Voter score tally ──────────────────────────────────────────────────────
+
+  async function awardVoterScores(votingRound: string, correctChoice: string) {
+    if (!gameState) return;
+    const votes = gameState.audienceVotes ?? {};
+    const existing = gameState.voterScores ?? {};
+    const updates: Record<string, unknown> = {};
+    Object.entries(votes).forEach(([uid, v]) => {
+      if (v.votingRound === votingRound && v.choice === correctChoice) {
+        updates[`voterScores.${uid}`] = {
+          name: v.displayName ?? uid,
+          correctCount: (existing[uid]?.correctCount ?? 0) + 1,
+        };
+      }
+    });
+    if (Object.keys(updates).length > 0) await db_update(updates);
+  }
 
   // ── Vote count helper ──────────────────────────────────────────────────────
 
@@ -342,22 +414,49 @@ export default function OperatorPage() {
   }
 
   function loadPhotoAsBase64(file: File, onDone: (b64: string) => void) {
-    const reader = new FileReader();
-    reader.onload = (ev) => onDone(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 400;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      onDone(canvas.toDataURL('image/jpeg', 0.75));
+    };
+    img.src = url;
+  }
+
+  // ── Setup: pre-populate from existing game state (used when going back to setup) ─
+
+  function populateSetupFromGameState(gs: GameState) {
+    const count = gs.players.length;
+    setPlayerCount(count);
+    setPlayerNames(gs.players.map((p) => p.name));
+    setPlayerPhotos(gs.players.map((p) => (p.photo.startsWith('data:') ? p.photo : '')));
+    setWarmupData(gs.warmup.statements);
+    setSeg1Data(gs.segment1.statements);
+    setSeg2Data(gs.segment2.statements);
+    if (gs.segment3.photoTitle) setSeg3Meta({ photoTitle: gs.segment3.photoTitle });
+    setSeg3Photo(gs.segment3.photoUrl ?? '');
   }
 
   // ── Setup: validate & start ────────────────────────────────────────────────
 
   function validateAndStart() {
     const errors: string[] = [];
-    if (playerNames.some((n) => !n.trim())) errors.push('All 3 player names must be filled.');
+    if (playerNames.some((n) => !n.trim())) errors.push(`All ${playerCount} player names must be filled.`);
     if (warmupData.length < 1) errors.push('Warmup CSV must have at least 1 row.');
-    if (seg1Data.length !== 3) errors.push('Segment 1 CSV must have exactly 3 rows (one per player).');
-    if (seg2Data.length !== 3) errors.push('Segment 2 CSV must have exactly 3 rows (one per player).');
+    if (seg1Data.length !== playerCount) errors.push(`Segment 1 CSV must have exactly ${playerCount} rows (one per player).`);
+    if (seg2Data.length !== playerCount) errors.push(`Segment 2 CSV must have exactly ${playerCount} rows (one per player).`);
     if (!seg3Meta) errors.push('Segment 3 CSV must be uploaded.');
     if (errors.length > 0) { alert(errors.join('\n')); return; }
 
+    const emptyVotes = Object.fromEntries(Array.from({ length: playerCount }, (_, i) => [i + 1, null]));
     const newState: GameState = {
       ...initialGameState,
       phase: 'WARMUP',
@@ -365,8 +464,8 @@ export default function OperatorPage() {
         id: i + 1, name: name.trim(), score: 0, photo: playerPhotos[i] || `/player${i + 1}.png`,
       })),
       warmup: { ...initialGameState.warmup, statements: warmupData },
-      segment1: { ...initialGameState.segment1, statements: seg1Data },
-      segment2: { ...initialGameState.segment2, statements: seg2Data },
+      segment1: { ...initialGameState.segment1, statements: seg1Data, playerVotes: emptyVotes },
+      segment2: { ...initialGameState.segment2, statements: seg2Data, playerVotes: emptyVotes },
       segment3: { ...initialGameState.segment3, photoUrl: seg3Photo || null, photoTitle: seg3Meta!.photoTitle },
     };
     setDoc(doc(db, 'gameState', 'live'), newState)
@@ -406,13 +505,18 @@ export default function OperatorPage() {
     if (!gameState || !seg1Preview) return;
     const { players, segment1 } = gameState;
     const updatedPlayers = players.map((p) => ({ ...p, score: p.score + (seg1Preview.totals[p.id] ?? 0) }));
+    const deltas = players
+      .filter((p) => seg1Preview.totals[p.id] > 0)
+      .map((p) => ({ name: p.name, delta: seg1Preview.totals[p.id] }));
     await db_update({
       players: updatedPlayers,
       'segment1.completedStorytellers': [...segment1.completedStorytellers, segment1.currentStorytellerId],
       'segment1.currentStorytellerId': null,
       'segment1.showResult': false,
       'segment1.audienceVotingOpen': false,
-      'segment1.playerVotes': { 1: null, 2: null, 3: null },
+      'segment1.playerVotes': Object.fromEntries(players.map((p) => [p.id, null])),
+      scorePopupDeltas: deltas,
+      showScorePopup: false,
     });
     setSeg1Awarded(true);
   }
@@ -449,13 +553,18 @@ export default function OperatorPage() {
     if (!gameState || !seg2Preview) return;
     const { players, segment2 } = gameState;
     const updatedPlayers = players.map((p) => ({ ...p, score: p.score + (seg2Preview.totals[p.id] ?? 0) }));
+    const deltas = players
+      .filter((p) => seg2Preview.totals[p.id] > 0)
+      .map((p) => ({ name: p.name, delta: seg2Preview.totals[p.id] }));
     await db_update({
       players: updatedPlayers,
       'segment2.completedStorytellers': [...segment2.completedStorytellers, segment2.currentStorytellerId],
       'segment2.currentStorytellerId': null,
       'segment2.showResult': false,
       'segment2.audienceVotingOpen': false,
-      'segment2.playerVotes': { 1: null, 2: null, 3: null },
+      'segment2.playerVotes': Object.fromEntries(players.map((p) => [p.id, null])),
+      scorePopupDeltas: deltas,
+      showScorePopup: false,
     });
     setSeg2Awarded(true);
   }
@@ -479,10 +588,18 @@ export default function OperatorPage() {
 
   async function awardSeg3Points(winnerId: number) {
     if (!gameState) return;
+    const winner = gameState.players.find((p) => p.id === winnerId);
     const updatedPlayers = gameState.players.map((p) =>
       p.id === winnerId ? { ...p, score: p.score + 300 } : p
     );
-    await db_update({ players: updatedPlayers, 'segment3.winnerId': winnerId, 'segment3.showResult': true });
+    await db_update({
+      players: updatedPlayers,
+      'segment3.winnerId': winnerId,
+      'segment3.showResult': true,
+      scorePopupDeltas: winner ? [{ name: winner.name, delta: 300 }] : [],
+      showScorePopup: false,
+    });
+    await awardVoterScores('seg3', String(winnerId));
   }
 
   // ── Render helpers (plain functions, NOT component definitions) ────────────
@@ -666,7 +783,45 @@ export default function OperatorPage() {
               () => db_update({ showLeaderboardModal: !gameState.showLeaderboardModal }),
               { border: '1px solid #27272a', backgroundColor: 'transparent', color: gameState.showLeaderboardModal ? '#4ade80' : '#52525b' },
             )}
+            {panelBtn(
+              gameState.showScorePopup ? '● Score Popup ON' : '○ Score Popup OFF',
+              () => db_update({ showScorePopup: !gameState.showScorePopup }),
+              { border: '1px solid #27272a', backgroundColor: 'transparent', color: gameState.showScorePopup ? '#4ade80' : '#52525b' },
+              (gameState.scorePopupDeltas ?? []).length === 0,
+            )}
           </div>
+
+          <div style={{ borderTop: '1px solid #27272a' }} />
+
+          {/* Top Voters */}
+          <div className="space-y-2">
+            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>AUDIENCE</p>
+            {panelBtn(
+              gameState.showTopVoters ? '● Top Voters ON' : '○ Top Voters OFF',
+              () => db_update({ showTopVoters: !gameState.showTopVoters }),
+              { border: '1px solid #27272a', backgroundColor: 'transparent', color: gameState.showTopVoters ? '#4ade80' : '#52525b' },
+            )}
+            {gameState.showTopVoters && <TopVotersPanel voterScores={gameState.voterScores ?? {}} />}
+          </div>
+
+          <div style={{ borderTop: '1px solid #27272a' }} />
+
+          {/* Back to setup */}
+          {currentPhase !== 'SETUP' && (
+            <div className="space-y-2">
+              <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>SETUP</p>
+              {panelBtn(
+                '← BACK TO SETUP',
+                () => {
+                  if (confirm('Go back to setup? The game will pause. You can fix names, photos, or CSVs and restart.')) {
+                    populateSetupFromGameState(gameState);
+                    db_update({ phase: 'SETUP' });
+                  }
+                },
+                { backgroundColor: '#0f0f12', color: '#a1a1aa', border: '1px solid #3f3f46' },
+              )}
+            </div>
+          )}
 
           <div style={{ borderTop: '1px solid #27272a' }} />
 
@@ -686,94 +841,130 @@ export default function OperatorPage() {
   }
 
   function renderSetup() {
+    const countReady = playerCount >= 2;
+
     return (
-      <div className="grid grid-cols-2 gap-8">
-        {/* Left: players */}
-        <div className="space-y-5">
-          <p className="font-mono text-sm uppercase tracking-widest" style={{ color: '#52525b' }}>Players</p>
+      <div className="space-y-8">
+
+        {/* Step 1: Number of players */}
+        <div className="space-y-3">
+          <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>Step 1 — How many players?</p>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="e.g. 4"
+            value={playerCount === 0 ? '' : playerCount}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (raw === '') { setPlayerCount(0); return; }
+              const v = parseInt(raw);
+              if (!isNaN(v)) setPlayerCount(v);
+            }}
+            onBlur={() => { if (playerCount > 0) setPlayerCount((c) => Math.max(2, c)); }}
+            className="w-32 px-4 py-3 rounded-lg font-mono text-xl outline-none"
+            style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', color: '#fafafa' }}
+            onFocus={(e) => (e.target.style.borderColor = '#f59e0b')}
+          />
+          {playerCount === 1 && (
+            <p className="font-mono text-sm" style={{ color: '#f87171' }}>Need at least 2 players.</p>
+          )}
+        </div>
+
+        {/* Step 2: Player names + photos (appears once count is valid) */}
+        {countReady && (
+          <div className="space-y-3">
+            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>Step 2 — Player names & photos</p>
+            <div className="space-y-3">
+              {Array.from({ length: playerCount }, (_, i) => i).map((i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="font-mono text-sm w-6 shrink-0" style={{ color: '#52525b' }}>P{i + 1}</span>
+                  <input
+                    type="text"
+                    value={playerNames[i] ?? ''}
+                    onChange={(e) => setPlayerNames((prev) => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                    placeholder={`Player ${i + 1} name`}
+                    className="flex-1 px-4 py-3 rounded-lg text-base outline-none transition-colors font-mono"
+                    style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                    onFocus={(e) => (e.target.style.borderColor = '#f59e0b')}
+                    onBlur={(e) => (e.target.style.borderColor = '#3f3f46')}
+                  />
+                  <label className="cursor-pointer px-4 py-3 rounded-lg font-mono text-sm transition-colors shrink-0"
+                    style={{ border: '1px solid #3f3f46', color: '#71717a' }}>
+                    Photo
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) loadPhotoAsBase64(file, (b64) => setPlayerPhotos((prev) => { const p = [...prev]; p[i] = b64; return p; }));
+                    }} />
+                  </label>
+                  {playerPhotos[i] && (
+                    <img src={playerPhotos[i]} className="w-11 h-11 rounded-full object-cover shrink-0"
+                      style={{ outline: '2px solid #f59e0b', outlineOffset: '2px' }} alt="" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: CSV uploads + photo (appears once count is valid) */}
+        {countReady && (
           <div className="space-y-4">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex items-center gap-3">
-                <span className="font-mono text-sm w-6 shrink-0" style={{ color: '#52525b' }}>P{i + 1}</span>
-                <input
-                  type="text"
-                  value={playerNames[i]}
-                  onChange={(e) => setPlayerNames((prev) => { const n = [...prev]; n[i] = e.target.value; return n; })}
-                  placeholder={`Player ${i + 1} name`}
-                  className="flex-1 px-4 py-3 rounded-lg text-base outline-none transition-colors font-mono"
-                  style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', color: '#fafafa' }}
-                  onFocus={(e) => (e.target.style.borderColor = '#f59e0b')}
-                  onBlur={(e) => (e.target.style.borderColor = '#3f3f46')}
-                />
-                <label className="cursor-pointer px-4 py-3 rounded-lg font-mono text-sm transition-colors shrink-0"
-                  style={{ border: '1px solid #3f3f46', color: '#71717a' }}>
-                  Photo
+            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>Step 3 — Upload CSVs & segment 3 photo</p>
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { label: 'WARMUP CSV', sample: '/warmup_sample.csv', onChange: parseWarmupCsv, count: warmupData.length, preview: warmupData.map((r) => r.statement) },
+                { label: 'SEGMENT 1 CSV', sample: '/segment1_sample.csv', onChange: parseSeg1Csv, count: seg1Data.length, preview: seg1Data.map((r) => `${r.playerName}: ${r.statement}`) },
+                { label: 'SEGMENT 2 CSV', sample: '/segment2_sample.csv', onChange: parseSeg2Csv, count: seg2Data.length, preview: seg2Data.map((r) => `${r.playerName}: "${r.statement1}" / "${r.statement2}"`) },
+                { label: 'SEGMENT 3 CSV', sample: '/segment3_sample.csv', onChange: parseSeg3Csv, count: seg3Meta ? 1 : 0, preview: seg3Meta ? [seg3Meta.photoTitle] : [] },
+              ].map(({ label, sample, onChange, count, preview }) => (
+                <div key={label} className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: '#a1a1aa' }}>{label}</span>
+                    <div className="flex items-center gap-3">
+                      {count > 0 && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ {count} row{count !== 1 ? 's' : ''}</span>}
+                      <a href={sample} download className="font-mono text-sm underline" style={{ color: '#f59e0b' }}>sample</a>
+                    </div>
+                  </div>
+                  <label className="cursor-pointer inline-flex">
+                    <span className="px-4 py-2 rounded font-mono text-sm" style={{ border: '1px solid #3f3f46', color: '#71717a' }}>Choose file</span>
+                    <input type="file" accept=".csv" onChange={onChange} className="hidden" />
+                  </label>
+                  {count > 0 && (
+                    <div className="mt-2 space-y-0.5 max-h-16 overflow-y-auto">
+                      {preview.map((line, i) => (
+                        <p key={i} className="font-mono text-sm truncate" style={{ color: '#52525b' }}>{i + 1}. {line}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+                <p className="font-mono text-sm font-bold uppercase tracking-widest mb-3" style={{ color: '#a1a1aa' }}>SEGMENT 3 OBJECT PHOTO</p>
+                <label className="cursor-pointer inline-flex">
+                  <span className="px-4 py-2 rounded font-mono text-sm" style={{ border: '1px solid #3f3f46', color: '#71717a' }}>Choose photo</span>
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) loadPhotoAsBase64(file, (b64) => setPlayerPhotos((prev) => { const p = [...prev]; p[i] = b64; return p; }));
+                    if (file) loadPhotoAsBase64(file, setSeg3Photo);
                   }} />
                 </label>
-                {playerPhotos[i] && (
-                  <img src={playerPhotos[i]} className="w-11 h-11 rounded-full object-cover shrink-0"
-                    style={{ outline: '2px solid #f59e0b', outlineOffset: '2px' }} alt="" />
-                )}
+                {seg3Photo && <img src={seg3Photo} alt="Object preview" className="h-24 rounded-lg object-cover mt-3" style={{ border: '1px solid #3f3f46' }} />}
               </div>
-            ))}
+            </div>
           </div>
+        )}
 
+        {/* Validate & start */}
+        {countReady && (
           <button
             onClick={validateAndStart}
-            className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors mt-4"
+            className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
             style={{ backgroundColor: '#f59e0b', color: '#09090b' }}
           >
             VALIDATE &amp; START SHOW →
           </button>
-        </div>
+        )}
 
-        {/* Right: CSV uploads + photo */}
-        <div className="space-y-4">
-          {[
-            { label: 'WARMUP CSV', sample: '/warmup_sample.csv', onChange: parseWarmupCsv, count: warmupData.length, preview: warmupData.map((r) => r.statement) },
-            { label: 'SEGMENT 1 CSV', sample: '/segment1_sample.csv', onChange: parseSeg1Csv, count: seg1Data.length, preview: seg1Data.map((r) => `${r.playerName}: ${r.statement}`) },
-            { label: 'SEGMENT 2 CSV', sample: '/segment2_sample.csv', onChange: parseSeg2Csv, count: seg2Data.length, preview: seg2Data.map((r) => `${r.playerName}: "${r.statement1}" / "${r.statement2}"`) },
-            { label: 'SEGMENT 3 CSV', sample: '/segment3_sample.csv', onChange: parseSeg3Csv, count: seg3Meta ? 1 : 0, preview: seg3Meta ? [seg3Meta.photoTitle] : [] },
-          ].map(({ label, sample, onChange, count, preview }) => (
-            <div key={label} className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: '#a1a1aa' }}>{label}</span>
-                <div className="flex items-center gap-3">
-                  {count > 0 && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ {count} row{count !== 1 ? 's' : ''}</span>}
-                  <a href={sample} download className="font-mono text-sm underline" style={{ color: '#f59e0b' }}>sample</a>
-                </div>
-              </div>
-              <label className="cursor-pointer inline-flex">
-                <span className="px-4 py-2 rounded font-mono text-sm transition-colors" style={{ border: '1px solid #3f3f46', color: '#71717a' }}>
-                  Choose file
-                </span>
-                <input type="file" accept=".csv" onChange={onChange} className="hidden" />
-              </label>
-              {count > 0 && (
-                <div className="mt-2 space-y-0.5 max-h-16 overflow-y-auto">
-                  {preview.map((line, i) => (
-                    <p key={i} className="font-mono text-sm truncate" style={{ color: '#52525b' }}>{i + 1}. {line}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-
-          <div className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
-            <p className="font-mono text-sm font-bold uppercase tracking-widest mb-3" style={{ color: '#a1a1aa' }}>SEGMENT 3 OBJECT PHOTO</p>
-            <label className="cursor-pointer inline-flex">
-              <span className="px-4 py-2 rounded font-mono text-sm" style={{ border: '1px solid #3f3f46', color: '#71717a' }}>Choose photo</span>
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) loadPhotoAsBase64(file, setSeg3Photo);
-              }} />
-            </label>
-            {seg3Photo && <img src={seg3Photo} alt="Object preview" className="h-24 rounded-lg object-cover mt-3" style={{ border: '1px solid #3f3f46' }} />}
-          </div>
-        </div>
       </div>
     );
   }
@@ -834,7 +1025,10 @@ export default function OperatorPage() {
         <div className="space-y-5">
           <VoteBars counts={counts} />
           {warmupVoteLocked && !warmup.showResult && (
-            <button onClick={() => db_update({ 'warmup.showResult': true })}
+            <button onClick={() => {
+              db_update({ 'warmup.showResult': true });
+              awardVoterScores(`warmup-${warmup.currentIndex}`, stmt?.isLie ? 'LIE' : 'TRUTH');
+            }}
               className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
               style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
               REVEAL ANSWER
@@ -854,7 +1048,7 @@ export default function OperatorPage() {
     return (
       <div>
         <p className="font-mono text-sm uppercase tracking-widest mb-4" style={{ color: '#52525b' }}>Select Storyteller</p>
-        <div className="grid grid-cols-3 gap-3">
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(players.length, 5)}, minmax(0, 1fr))`, gap: '12px' }}>
           {players.map((player) => {
             const isDone = completedStorytellers.includes(player.id);
             const isSelected = currentStorytellerId === player.id;
@@ -897,7 +1091,7 @@ export default function OperatorPage() {
         {renderStorytellersGrid(players, segment1.completedStorytellers, segment1.currentStorytellerId, (id) =>
           db_update({
             'segment1.currentStorytellerId': id,
-            'segment1.playerVotes': { 1: null, 2: null, 3: null },
+            'segment1.playerVotes': Object.fromEntries(players.map((p) => [p.id, null])),
             'segment1.audienceVotingOpen': false,
             'segment1.showResult': false,
           })
@@ -952,7 +1146,11 @@ export default function OperatorPage() {
               <VoteBars counts={counts} />
 
               {!segment1.showResult && (
-                <button onClick={() => { db_update({ 'segment1.showResult': true }); calcSeg1Points(); }}
+                <button onClick={() => {
+                  db_update({ 'segment1.showResult': true });
+                  calcSeg1Points();
+                  if (stmtObj) awardVoterScores(`seg1-${segment1.currentStorytellerId}`, stmtObj.isLie ? 'LIE' : 'TRUTH');
+                }}
                   className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
                   style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
                   REVEAL TRUTH / LIE
@@ -1010,7 +1208,7 @@ export default function OperatorPage() {
         {renderStorytellersGrid(players, segment2.completedStorytellers, segment2.currentStorytellerId, (id) =>
           db_update({
             'segment2.currentStorytellerId': id,
-            'segment2.playerVotes': { 1: null, 2: null, 3: null },
+            'segment2.playerVotes': Object.fromEntries(players.map((p) => [p.id, null])),
             'segment2.audienceVotingOpen': false,
             'segment2.showResult': false,
           })
@@ -1071,7 +1269,11 @@ export default function OperatorPage() {
               <VoteBars counts={counts} />
 
               {!segment2.showResult && (
-                <button onClick={() => { db_update({ 'segment2.showResult': true }); calcSeg2Points(); }}
+                <button onClick={() => {
+                  db_update({ 'segment2.showResult': true });
+                  calcSeg2Points();
+                  if (stmtObj) awardVoterScores(`seg2-${segment2.currentStorytellerId}`, stmtObj.lieIndex === 1 ? 'STATEMENT1' : 'STATEMENT2');
+                }}
                   className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
                   style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
                   REVEAL TRUTH / LIE
@@ -1139,7 +1341,6 @@ export default function OperatorPage() {
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-5 items-start">
           <div className="rounded-xl p-5" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
-            <p className="font-mono text-sm uppercase tracking-widest mb-3" style={{ color: '#52525b' }}>OBJECT: {segment3.photoTitle}</p>
             {segment3.photoUrl && (
               <img src={segment3.photoUrl} alt={segment3.photoTitle ?? ''} className="h-36 rounded-lg object-cover w-full" />
             )}
@@ -1183,7 +1384,7 @@ export default function OperatorPage() {
                 <p className="font-mono text-sm font-bold uppercase tracking-widest mb-4" style={{ color: '#fbbf24' }}>
                   TIE DETECTED — Select winner manually:
                 </p>
-                <div className="grid grid-cols-3 gap-3">
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(players.length, 5)}, minmax(0, 1fr))`, gap: '12px' }}>
                   {players.map((p) => (
                     <button key={p.id} onClick={() => setSeg3ManualWinnerId(p.id)}
                       className="p-4 rounded-xl font-mono text-base font-bold transition-all"
@@ -1294,18 +1495,32 @@ export default function OperatorPage() {
               {PHASE_ORDER.map((phase, i) => {
                 const isPast = i < currentPhaseIdx;
                 const isCurrent = i === currentPhaseIdx;
+                const isFuture = i > currentPhaseIdx;
                 return (
                   <div key={phase} className="flex items-center">
-                    <span
-                      className="font-mono text-sm px-3 py-1 rounded transition-colors whitespace-nowrap"
-                      style={{
-                        backgroundColor: isCurrent ? '#f59e0b' : 'transparent',
-                        color: isCurrent ? '#09090b' : isPast ? '#4b5563' : '#27272a',
-                        fontWeight: isCurrent ? 700 : 400,
-                      }}
-                    >
-                      {isCurrent && '▶ '}{PHASE_LABELS[phase]}
-                    </span>
+                    {isPast ? (
+                      <button
+                        onClick={() => db_update({ phase })}
+                        className="font-mono text-sm px-3 py-1 rounded whitespace-nowrap transition-colors"
+                        style={{ color: '#6b7280', backgroundColor: 'transparent', fontWeight: 400 }}
+                        onMouseEnter={(e) => { (e.target as HTMLElement).style.color = '#d1d5db'; (e.target as HTMLElement).style.backgroundColor = '#1f1f23'; }}
+                        onMouseLeave={(e) => { (e.target as HTMLElement).style.color = '#6b7280'; (e.target as HTMLElement).style.backgroundColor = 'transparent'; }}
+                      >
+                        {PHASE_LABELS[phase]}
+                      </button>
+                    ) : (
+                      <span
+                        className="font-mono text-sm px-3 py-1 rounded transition-colors whitespace-nowrap"
+                        style={{
+                          backgroundColor: isCurrent ? '#f59e0b' : 'transparent',
+                          color: isCurrent ? '#09090b' : '#27272a',
+                          fontWeight: isCurrent ? 700 : 400,
+                          cursor: isFuture ? 'default' : 'default',
+                        }}
+                      >
+                        {isCurrent && '▶ '}{PHASE_LABELS[phase]}
+                      </span>
+                    )}
                     {i < PHASE_ORDER.length - 1 && (
                       <span className="font-mono text-sm mx-1" style={{ color: isPast ? '#374151' : '#1f1f23' }}>—</span>
                     )}

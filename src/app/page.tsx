@@ -138,9 +138,6 @@ export default function HomePage() {
           className="px-8 py-3 flex items-center justify-between"
           style={{ borderTop: '1px solid #27272a', backgroundColor: '#0d0d0f' }}
         >
-          <span className="text-xs uppercase tracking-widest" style={{ color: '#3f3f46' }}>
-            Next.js 14 · TypeScript · Tailwind CSS
-          </span>
           <span
             className="text-xs uppercase tracking-widest font-bold"
             style={{ color: '#f59e0b' }}

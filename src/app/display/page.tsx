@@ -38,6 +38,10 @@ interface GameState {
   players: Player[];
   showScoreboard: boolean;
   showLeaderboardModal: boolean;
+  showTopVoters: boolean;
+  showScorePopup: boolean;
+  scorePopupDeltas: { name: string; delta: number }[];
+  voterScores: { [uid: string]: { name: string; correctCount: number } };
   banterTimer: {
     totalSeconds: number;
     startedAt: number | null;
@@ -287,7 +291,7 @@ function LeaderboardModal({ players }: { players: Player[] }) {
         ))}
       </div>
 
-      <h1 className="text-8xl font-bold text-orange-500 mb-16 tracking-tight">LIAR HEARTS</h1>
+      <h1 className="text-8xl font-bold text-orange-500 mb-16 tracking-tight">Lie Hard</h1>
       <div className="flex gap-16 items-end">
         {sorted.map((player, rank) => (
           <div key={player.id} className="flex flex-col items-center gap-4">
@@ -313,13 +317,52 @@ function LeaderboardModal({ players }: { players: Player[] }) {
   );
 }
 
+// ── Top Voters Overlay ─────────────────────────────────────────────────────
+
+function TopVotersOverlay({ voterScores }: { voterScores: GameState['voterScores'] }) {
+  const sorted = Object.entries(voterScores ?? {})
+    .sort(([, a], [, b]) => b.correctCount - a.correctCount)
+    .slice(0, 3);
+
+  const medals = ['🥇', '🥈', '🥉'];
+  const medalColors = ['#facc15', '#94a3b8', '#cd7c2f'];
+
+  return (
+    <div className="absolute bottom-10 right-10 z-30" style={{ width: 420 }}>
+      <div
+        className="rounded-3xl px-10 py-8"
+        style={{ backgroundColor: '#0d0d0f', border: '2px solid #f59e0b' }}
+      >
+        <p className="text-orange-400 text-2xl font-black uppercase tracking-widest mb-6 text-center">
+          Top Voters
+        </p>
+        {sorted.length === 0 ? (
+          <p className="text-gray-600 text-xl text-center">No votes yet</p>
+        ) : (
+          <div className="space-y-4">
+            {sorted.map(([uid, data], rank) => (
+              <div key={uid} className="flex items-center gap-4">
+                <span className="text-4xl shrink-0">{medals[rank]}</span>
+                <span className="text-white text-2xl font-bold flex-1 truncate">{data.name}</span>
+                <span className="text-2xl font-black shrink-0" style={{ color: medalColors[rank] }}>
+                  {data.correctCount} ✓
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Phase screens ──────────────────────────────────────────────────────────
 
 function SetupScreen() {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-black">
       <h1 className="text-[120px] font-black text-orange-500 leading-none tracking-tight">
-        LIAR HEARTS
+        Lie Hard
       </h1>
       <p className="text-5xl text-gray-400 mt-4 font-semibold">Season 2</p>
       <p className="text-2xl text-gray-600 mt-8">Setting up...</p>
@@ -644,6 +687,17 @@ export default function DisplayPage() {
   const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set());
   const [timerDisplay, setTimerDisplay] = useState(0);
   const timerTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [scale, setScale] = useState(1);
+
+  // Scale the 1920×1080 canvas to fit any screen/projector size
+  useEffect(() => {
+    const update = () => {
+      setScale(Math.min(window.innerWidth / 1920, window.innerHeight / 1080));
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
   // Compute remaining timer seconds from Firestore banterTimer
   useEffect(() => {
@@ -668,7 +722,7 @@ export default function DisplayPage() {
       if (!snap.exists()) return;
       const newState = snap.data() as GameState;
 
-      // Detect score changes for highlight animation
+      // Detect score changes for scoreboard highlight
       const changed = new Set<number>();
       newState.players.forEach((p) => {
         if (
@@ -691,16 +745,16 @@ export default function DisplayPage() {
 
   if (!gameState) {
     return (
-      <div
-        style={{ width: '1920px', height: '1080px', overflow: 'hidden' }}
-        className="bg-black text-white flex items-center justify-center"
-      >
-        <p className="text-gray-600 text-4xl">Connecting...</p>
+      <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        <div style={{ width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: 'center center', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          className="bg-black text-white">
+          <p className="text-gray-600 text-4xl">Connecting...</p>
+        </div>
       </div>
     );
   }
 
-  const { phase, players, showScoreboard, showLeaderboardModal } = gameState;
+  const { phase, players, showScoreboard, showLeaderboardModal, showTopVoters, showScorePopup, scorePopupDeltas, voterScores } = gameState;
 
   function MainContent() {
     switch (phase) {
@@ -717,7 +771,7 @@ export default function DisplayPage() {
       case 'FINAL':
         return (
           <div className="w-full h-full flex flex-col items-center justify-center bg-black gap-8">
-            <h1 className="text-[100px] font-black text-orange-500 leading-none">LIAR HEARTS</h1>
+            <h1 className="text-[100px] font-black text-orange-500 leading-none">Lie Hard</h1>
             <p className="text-5xl text-gray-400 font-semibold">Season 2</p>
           </div>
         );
@@ -732,8 +786,9 @@ export default function DisplayPage() {
   const timerUrgent = timerDisplay <= 10 && timerDisplay > 0;
 
   return (
+    <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
     <div
-      style={{ width: '1920px', height: '1080px', overflow: 'hidden' }}
+      style={{ width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: 'center center', overflow: 'hidden', flexShrink: 0 }}
       className="bg-black text-white relative flex font-sans"
     >
       {/* Main content area */}
@@ -768,8 +823,38 @@ export default function DisplayPage() {
         </div>
       )}
 
+      {/* Points popup — shown only when operator enables it */}
+      {showScorePopup && (scorePopupDeltas ?? []).length > 0 && !showLeaderboardModal && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60">
+          <div
+            className="rounded-3xl px-20 py-14 text-center"
+            style={{ backgroundColor: '#0d0d0f', border: '3px solid #f59e0b', minWidth: 600 }}
+          >
+            <p className="text-orange-400 text-5xl font-black mb-10 uppercase tracking-widest">
+              Points Awarded!
+            </p>
+            <div className="space-y-5">
+              {(scorePopupDeltas ?? []).map(({ name, delta }) => (
+                <div key={name} className="flex items-center justify-between gap-20">
+                  <span className="text-white text-4xl font-bold">{name}</span>
+                  <span className={`text-4xl font-black ${delta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {delta > 0 ? '+' : ''}{delta} pts
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Top voters overlay */}
+      {showTopVoters && !showLeaderboardModal && (
+        <TopVotersOverlay voterScores={voterScores ?? {}} />
+      )}
+
       {/* Leaderboard modal */}
       {showLeaderboardModal && <LeaderboardModal players={players} />}
+    </div>
     </div>
   );
 }

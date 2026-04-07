@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Game state — operator panel has no auth, so keep this open
+    match /gameState/{document} {
+      allow read, write: if true;
+    }
+
+    // Voter registration — each user can only read/write their own doc
+    match /voters/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+  }
+}
