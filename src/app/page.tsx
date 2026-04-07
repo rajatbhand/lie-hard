@@ -1,103 +1,154 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+export default function HomePage() {
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{ backgroundColor: '#0d0d0f', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+    >
+      {/* Subtle grid overlay */}
+      <div
+        className="pointer-events-none fixed inset-0"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(245,158,11,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(245,158,11,0.03) 1px, transparent 1px)',
+          backgroundSize: '40px 40px',
+        }}
+      />
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      <div
+        className="relative w-full max-w-2xl rounded-xl overflow-hidden"
+        style={{ border: '1px solid #27272a', backgroundColor: '#111113' }}
+      >
+        {/* Header bar */}
+        <div
+          className="px-8 py-4 flex items-center gap-3"
+          style={{ borderBottom: '1px solid #27272a', backgroundColor: '#0d0d0f' }}
+        >
+          <span
+            className="inline-block w-2 h-2 rounded-full"
+            style={{ backgroundColor: '#f59e0b', boxShadow: '0 0 6px #f59e0b' }}
+          />
+          <span className="text-xs uppercase tracking-widest font-bold" style={{ color: '#52525b' }}>
+            LIE HARD — GAME CONTROL SYSTEM
+          </span>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+
+        {/* Main content */}
+        <div className="px-8 py-10 text-center">
+          <h1
+            className="text-5xl font-black uppercase tracking-widest mb-1"
+            style={{ color: '#f59e0b', textShadow: '0 0 32px rgba(245,158,11,0.35)' }}
+          >
+            LIE HARD
+          </h1>
+          <p className="text-xs uppercase tracking-widest mb-10" style={{ color: '#52525b' }}>
+            Firebase-powered real-time game show system
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <a
+              href="/display"
+              className="group relative rounded-lg p-6 text-left transition-all duration-200"
+              style={{
+                backgroundColor: '#0d0d0f',
+                border: '1px solid #27272a',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.border = '1px solid #3b82f6';
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 0 16px rgba(59,130,246,0.15)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.border = '1px solid #27272a';
+                (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+              }}
+            >
+              <div className="text-2xl mb-3">📺</div>
+              <div
+                className="text-xs uppercase tracking-widest font-bold mb-1"
+                style={{ color: '#3b82f6' }}
+              >
+                Display
+              </div>
+              <div className="text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>
+                TV / Audience View
+              </div>
+            </a>
+
+            <a
+              href="/operator"
+              className="group relative rounded-lg p-6 text-left transition-all duration-200"
+              style={{
+                backgroundColor: '#0d0d0f',
+                border: '1px solid #27272a',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.border = '1px solid #f59e0b';
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 0 16px rgba(245,158,11,0.15)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.border = '1px solid #27272a';
+                (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+              }}
+            >
+              <div className="text-2xl mb-3">🎮</div>
+              <div
+                className="text-xs uppercase tracking-widest font-bold mb-1"
+                style={{ color: '#f59e0b' }}
+              >
+                Control Panel
+              </div>
+              <div className="text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>
+                Game Operator
+              </div>
+            </a>
+
+            <a
+              href="/audience"
+              className="group relative rounded-lg p-6 text-left transition-all duration-200"
+              style={{
+                backgroundColor: '#0d0d0f',
+                border: '1px solid #27272a',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.border = '1px solid #a78bfa';
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 0 16px rgba(167,139,250,0.15)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.border = '1px solid #27272a';
+                (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+              }}
+            >
+              <div className="text-2xl mb-3">👥</div>
+              <div
+                className="text-xs uppercase tracking-widest font-bold mb-1"
+                style={{ color: '#a78bfa' }}
+              >
+                Audience
+              </div>
+              <div className="text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>
+                Team Selection
+              </div>
+            </a>
+          </div>
+        </div>
+
+        {/* Footer bar */}
+        <div
+          className="px-8 py-3 flex items-center justify-between"
+          style={{ borderTop: '1px solid #27272a', backgroundColor: '#0d0d0f' }}
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <span className="text-xs uppercase tracking-widest" style={{ color: '#3f3f46' }}>
+            Next.js 14 · TypeScript · Tailwind CSS
+          </span>
+          <span
+            className="text-xs uppercase tracking-widest font-bold"
+            style={{ color: '#f59e0b' }}
+          >
+            ● LIVE
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

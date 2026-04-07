@@ -1,12 +1,12 @@
-// src/app/operator/page.tsx
-"use client";
+'use client';
 
-import { db } from "@/lib/firebase";
-import { doc, setDoc, updateDoc, getDoc, onSnapshot } from "firebase/firestore";
-import { useState, useEffect, ChangeEvent } from "react";
-import Papa from "papaparse";
+import { useState, useEffect, useRef, ChangeEvent } from 'react';
+import { doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import Papa from 'papaparse';
 
-// --- TYPES ---
+// ── Types ──────────────────────────────────────────────────────────────────
+
 interface Player {
   id: number;
   name: string;
@@ -14,975 +14,1356 @@ interface Player {
   photo: string;
 }
 
-interface Round1Statement {
-  playerId: number;
-  playerName: string; // Add playerName to match display page
+interface WarmupStatement {
   statement: string;
-  isTruth: boolean;
+  isLie: boolean;
+}
+
+interface Segment1Statement {
+  playerId: number;
+  playerName: string;
+  statement: string;
+  isLie: boolean;
+}
+
+interface Segment2Statement {
+  playerId: number;
+  playerName: string;
+  statement1: string;
+  statement2: string;
+  lieIndex: 1 | 2;
 }
 
 interface GameState {
-  currentRound: 'LOBBY' | 'R1' | 'R2' | 'R3' | 'R4' | 'WINNER';
+  phase: 'SETUP' | 'WARMUP' | 'SEGMENT1' | 'SEGMENT2' | 'SEGMENT3' | 'FINAL';
   players: Player[];
   showScoreboard: boolean;
   showLeaderboardModal: boolean;
-  roundStarted: boolean; // Whether the current round has been started (shows intro vs actual content)
-  round1: {
-    statements: Round1Statement[];
-    currentStorytellerId: number | null;
-    guesses: { [key: number]: 'TRUE' | 'LIE' | '' }; // New field
-    votingOpen: boolean;
+  banterTimer: {
+    totalSeconds: number;
+    startedAt: number | null; // epoch ms — null when not running
+    running: boolean;
+  };
+  warmup: {
+    statements: WarmupStatement[];
+    currentIndex: number;
+    audienceVotingOpen: boolean;
     showResult: boolean;
   };
-  round2: {
-    statements: string[]; // Array of 5 statements for part 1
-    revealedStatements: boolean[]; // Array of 5 booleans for which statements are revealed
-    revealOrder: number[]; // Array to track the order statements were revealed
-    part: 'STATEMENTS' | 'GUESSING'; // Current part of round 2
-    guesses: { [key: number]: number | null };
-    actualValue: number | null;
-    winnerId: number | null;
-  };
-  round3: {
-    sets: {
-      playerId: number;
-      statements: string[];
-      trueIndex: number;
-    }[];
+  segment1: {
+    statements: Segment1Statement[];
     currentStorytellerId: number | null;
-    currentStatements: string[]; // Current storyteller's 3 statements
-    trueIndex: number; // Which statement is true (0, 1, or 2)
-    nonPlayerGuesses: { [key: number]: number | null }; // Non-storyteller players' guesses (0, 1, or 2)
-    votingOpen: boolean;
+    playerVotes: { [playerId: number]: 'TRUTH' | 'LIE' | null };
+    audienceVotingOpen: boolean;
     showResult: boolean;
-    completedStorytellers: number[]; // Array of player IDs who have completed their turn
+    completedStorytellers: number[];
   };
-  round4: {
-    objectTitle: string;
-    objectImage: string;
-    realOwnerId: number;
+  segment2: {
+    statements: Segment2Statement[];
+    currentStorytellerId: number | null;
+    playerVotes: { [playerId: number]: 'STATEMENT1' | 'STATEMENT2' | null };
+    audienceVotingOpen: boolean;
+    showResult: boolean;
+    completedStorytellers: number[];
+  };
+  segment3: {
+    photoUrl: string | null;
+    photoTitle: string | null;
+    audienceVotingOpen: boolean;
+    showResult: boolean;
     winnerId: number | null;
-    showRealOwner: boolean;
+  };
+  audienceVotes: {
+    [deviceId: string]: {
+      choice: string;
+      votingRound: string;
+    };
   };
 }
 
-
-// --- MOCK DATA ---
-const initialPlayers: Player[] = [
-  { id: 1, name: "Baneet", score: 0, photo: "/player1.png" },
-  { id: 2, name: "Gaurav", score: 0, photo: "/player2.png" },
-  { id: 3, name: "Player 3", score: 0, photo: "/player3.png" },
-  { id: 4, name: "Player 4", score: 0, photo: "/player4.png" },
-];
-
-// REMOVE hardcoded statements for R1 and R3
 const initialGameState: GameState = {
-  currentRound: "LOBBY",
-  players: initialPlayers,
+  phase: 'SETUP',
+  players: [
+    { id: 1, name: 'Player 1', score: 0, photo: '/player1.png' },
+    { id: 2, name: 'Player 2', score: 0, photo: '/player2.png' },
+    { id: 3, name: 'Player 3', score: 0, photo: '/player3.png' },
+  ],
   showScoreboard: true,
   showLeaderboardModal: false,
-  roundStarted: false,
-  round1: {
-    statements: [], // Now starts empty
-    currentStorytellerId: null, // Changed from 1 to null
-    guesses: { 1: '', 2: '', 3: '', 4: '' }, // New field
-    votingOpen: false,
-    showResult: false,
-  },
-  round2: {
-    statements: [], // Empty array for statements
-    revealedStatements: [false, false, false, false, false], // All statements hidden initially
-    revealOrder: [], // Empty array for reveal order
-    part: 'STATEMENTS', // Start with statements part
-    guesses: { 1: null, 2: null, 3: null, 4: null },
-    actualValue: null,
-    winnerId: null,
-  },
-  round3: {
-    sets: [], // Now starts empty
+  banterTimer: { totalSeconds: 60, startedAt: null, running: false },
+  warmup: { statements: [], currentIndex: 0, audienceVotingOpen: false, showResult: false },
+  segment1: {
+    statements: [],
     currentStorytellerId: null,
-    currentStatements: [],
-    trueIndex: 0,
-    nonPlayerGuesses: { 1: null, 2: null, 3: null, 4: null },
-    votingOpen: false,
+    playerVotes: { 1: null, 2: null, 3: null },
+    audienceVotingOpen: false,
     showResult: false,
     completedStorytellers: [],
   },
-  round4: {
-    objectTitle: "A Well-Loved Stuffed Bear",
-    objectImage: "/bear.png",
-    realOwnerId: 2, // Gaurav
-    winnerId: null,
-    showRealOwner: false,
+  segment2: {
+    statements: [],
+    currentStorytellerId: null,
+    playerVotes: { 1: null, 2: null, 3: null },
+    audienceVotingOpen: false,
+    showResult: false,
+    completedStorytellers: [],
   },
+  segment3: { photoUrl: null, photoTitle: null, audienceVotingOpen: false, showResult: false, winnerId: null },
+  audienceVotes: {},
 };
 
-export default function OperatorPage() {
-  const [gameState, setGameState] = useState<GameState | null>(null);
-  const [correctGuessers, setCorrectGuessers] = useState<Record<number, boolean>>({});
-  const [r2Guesses, setR2Guesses] = useState<Record<number, string>>({ 1: '', 2: '', 3: '', 4: '' });
-  const [r2ActualValue, setR2ActualValue] = useState<string>('');
-  const [r3CorrectGuessers, setR3CorrectGuessers] = useState<Record<number, boolean>>({});
-  const [round1Data, setRound1Data] = useState<Round1Statement[]>([]);
-  const [round2Data, setRound2Data] = useState<string[]>([]); // For Round 2 statements
-  const [round3Data, setRound3Data] = useState<any[]>([]); // Using 'any' for now for R3 structure
+// ── Constants ──────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    // Listen to game state changes to make the operator panel reactive
-    const unsub = onSnapshot(doc(db, "gameState", "live"), (doc) => {
-      if (doc.exists()) {
-        setGameState(doc.data() as GameState);
-      } else {
-        console.log("No game state document found - initializing...");
-        // Initialize the game state if it doesn't exist
-        initializeGame();
-      }
-    });
-    return () => unsub();
-  }, []);
+const PHASE_ORDER: GameState['phase'][] = ['SETUP', 'WARMUP', 'SEGMENT1', 'SEGMENT2', 'SEGMENT3', 'FINAL'];
+const PHASE_LABELS: Record<GameState['phase'], string> = {
+  SETUP: 'Setup', WARMUP: 'Warmup', SEGMENT1: 'Seg 1', SEGMENT2: 'Seg 2', SEGMENT3: 'Seg 3', FINAL: 'Final',
+};
 
-  const updateGameState = async (newState: object) => {
-    // This function works well for top-level updates like changing the current round
-    try {
-      await updateDoc(doc(db, "gameState", "live"), newState);
-    } catch (error) {
-      console.error("Error updating game state: ", error);
-      alert("Error updating game. See console.");
-    }
+// ── Module-level components (fixes remount bug from inner definitions) ─────
+
+function VoteBars({ counts }: { counts: Record<string, number> }) {
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const colorMap: Record<string, string> = {
+    TRUTH: '#4ade80',
+    LIE: '#f87171',
+    STATEMENT1: '#fbbf24',
+    STATEMENT2: '#a78bfa',
   };
-  
-  const updateRound1State = async (newRound1State: object) => {
-    try {
-      const docRef = doc(db, "gameState", "live");
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const currentGameState = docSnap.data() as GameState;
-        const updatedRound1State = { ...currentGameState.round1, ...newRound1State };
-        await updateDoc(docRef, { round1: updatedRound1State });
-      }
-    } catch (e) {
-      console.error("Error updating Round 1 state: ", e);
-      alert("Error updating Round 1 state");
-    }
-  };
-
-  const updateRound2State = async (newRound2State: object) => {
-    try {
-      const docRef = doc(db, "gameState", "live");
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const currentGameState = docSnap.data() as GameState;
-        const updatedRound2State = { ...currentGameState.round2, ...newRound2State };
-        await updateDoc(docRef, { round2: updatedRound2State });
-      }
-    } catch (e) {
-      console.error("Error updating Round 2 state: ", e);
-      alert("Error updating Round 2 state");
-    }
-  };
-
-  const updateRound3State = async (newRound3State: object) => {
-    try {
-      const docRef = doc(db, "gameState", "live");
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const currentGameState = docSnap.data() as GameState;
-        const updatedRound3State = { ...currentGameState.round3, ...newRound3State };
-        await updateDoc(docRef, { round3: updatedRound3State });
-      }
-    } catch (e) {
-      console.error("Error updating Round 3 state: ", e);
-      alert("Error updating Round 3 state");
-    }
-  };
-
-
-
-  const initializeGame = async () => {
-    try {
-      await setDoc(doc(db, "gameState", "live"), initialGameState);
-      alert("Game Initialized to Lobby State!");
-    } catch (error) {
-      console.error("Error initializing game: ", error);
-    }
-  };
-
-  const awardPointsR1 = async () => {
-    const docRef = doc(db, "gameState", "live");
-    const docSnap = await getDoc(docRef);
-
-    if (docSnap.exists()) {
-      const currentGameState = docSnap.data() as GameState;
-      const updatedPlayers = currentGameState.players.map((player) => {
-        if (correctGuessers[player.id]) {
-          return { ...player, score: player.score + 1 };
-        }
-        return player;
-      });
-
-      await updateDoc(docRef, { players: updatedPlayers });
-      setCorrectGuessers({});
-      alert("Points awarded!");
-    } else {
-      alert("Error: Game state not found.");
-    }
-  };
-
-  const handleGuesserToggle = (playerId: number) => {
-    setCorrectGuessers(prev => ({ ...prev, [playerId]: !prev[playerId] }));
-  };
-
-  const handleR2GuessChange = (playerId: number, value: string) => {
-    setR2Guesses(prev => ({ ...prev, [playerId]: value }));
-    // This updates Firebase as you type (on blur)
-    updateGameState({ [`round2.guesses.${playerId}`]: Number(value) || null });
-  };
-  
-  const revealR2ActualValue = async () => {
-    await updateGameState({ 'round2.actualValue': Number(r2ActualValue) });
-    alert("Actual value has been revealed on the display.");
-  };
-
-  const revealR2Winner = async () => {
-    // This function is the same as the old calculateR2Winner
-    const docRef = doc(db, "gameState", "live");
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const gameState = docSnap.data() as GameState;
-      const { players, round2 } = gameState;
-      const { guesses, actualValue } = round2;
-
-      if (actualValue === null) {
-        alert("Please set the actual value before revealing a winner.");
-        return;
-      }
-
-      let winnerId = -1;
-      let minDiff = Infinity;
-
-      players.forEach(player => {
-        const guess = guesses[player.id];
-        if (guess !== null) {
-          const diff = Math.abs(guess - actualValue);
-          if (diff < minDiff) {
-            minDiff = diff;
-            winnerId = player.id;
-          }
-        }
-      });
-      
-      // TODO: Add manual override for ties
-
-      // Award points
-      const updatedPlayers = players.map(p => 
-        p.id === winnerId ? { ...p, score: p.score + 4 } : p
-      );
-
-      await updateGameState({
-        'round2.winnerId': winnerId,
-        players: updatedPlayers
-      });
-      
-      alert(`${players.find(p => p.id === winnerId)?.name} wins Round 2!`);
-
-    } else {
-      alert("Error: Game state not found.");
-    }
-  };
-
-  const awardPointsR3 = async () => {
-    const docRef = doc(db, "gameState", "live");
-    const docSnap = await getDoc(docRef);
-
-    if (docSnap.exists()) {
-      const currentGameState = docSnap.data() as GameState;
-      const updatedPlayers = currentGameState.players.map(player => {
-        if (r3CorrectGuessers[player.id]) {
-          return { ...player, score: player.score + 3 };
-        }
-        return player;
-      });
-
-      await updateDoc(docRef, { players: updatedPlayers });
-      setR3CorrectGuessers({}); // Reset checkboxes
-      alert("Points awarded for Round 3!");
-    } else {
-      alert("Error: Game state not found.");
-    }
-  };
-
-  const handleFileParse = (event: ChangeEvent<HTMLInputElement>, round: 'R1' | 'R2' | 'R3') => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        try {
-          if (round === 'R1') {
-            const processedData = results.data.map((row: any) => ({
-              playerId: parseInt(row.playerId, 10),
-              playerName: row.playerName, // Added playerName
-              statement: row.statement,
-              isTruth: row.isTruth.toUpperCase() === 'TRUE',
-            }));
-            setRound1Data(processedData as Round1Statement[]);
-            alert(`Round 1: ${processedData.length} statements loaded.`);
-          } else if (round === 'R2') {
-            const processedData = results.data.map((row: any) => row.statement);
-            setRound2Data(processedData);
-            alert(`Round 2: ${processedData.length} statements loaded.`);
-          } else if (round === 'R3') {
-            const processedData = results.data.map((row: any) => ({
-              playerId: parseInt(row.playerId, 10),
-              statements: [row.statement_1, row.statement_2, row.statement_3],
-              trueIndex: parseInt(row.true_index, 10),
-            }));
-            setRound3Data(processedData);
-            alert(`${processedData.length} statement sets for Round 3 loaded successfully.`);
-          }
-        } catch (error) {
-          alert("Error processing CSV data. Please check file format and content.");
-          console.error("CSV Processing Error:", error);
-        }
-      },
-      error: (error) => {
-        alert(`Error parsing ${round} CSV: ${error.message}`);
-      }
-    });
-  };
-
-  const importCsvData = async () => {
-    if (round1Data.length === 0 || round2Data.length === 0 || round3Data.length === 0) {
-      alert("Please upload files for Round 1, Round 2, and Round 3 before importing.");
-      return;
-    }
-    try {
-      // Create a fresh copy of the initial game state
-      const newGameState = { ...initialGameState };
-      
-      // Overwrite the statement and set arrays with the parsed data
-      newGameState.round1.statements = round1Data;
-      newGameState.round2.statements = round2Data;
-      newGameState.round3.sets = round3Data;
-
-      // Overwrite the entire document in Firebase for a more robust update
-      await setDoc(doc(db, "gameState", "live"), newGameState);
-
-      alert("CSV data has been imported into the live game state!");
-    } catch (error) {
-      alert("Error importing data. See console.");
-      console.error("Error importing CSV data: ", error);
-    }
-  };
-
-  const awardPointsR4 = async (winnerId: number) => {
-    const docRef = doc(db, "gameState", "live");
-    const docSnap = await getDoc(docRef);
-
-    if (docSnap.exists()) {
-      const currentGameState = docSnap.data() as GameState;
-      const updatedPlayers = currentGameState.players.map(player => 
-        player.id === winnerId ? { ...player, score: player.score + 8 } : player
-      );
-
-      await updateGameState({
-        'round4.winnerId': winnerId,
-        players: updatedPlayers
-      });
-      
-      const winner = updatedPlayers.find(p => p.id === winnerId);
-      alert(`${winner?.name} wins Round 4 and is awarded +8 points!`);
-    } else {
-      alert("Error: Game state not found.");
-    }
-  };
-
-  // NEW function to handle toggling guesses and awarding points automatically
-  const handleR1GuessToggle = async (guesserId: number, guess: 'TRUE' | 'LIE') => {
-    if (!gameState) return;
-    const { players, round1 } = gameState;
-    const currentGuess = round1.guesses[guesserId];
-    const newGuess = currentGuess === guess ? null : guess; // Toggle off if same button clicked
-
-    const statement = round1.statements.find(s => s.playerId === round1.currentStorytellerId);
-    if (!statement) {
-      alert("Error: Cannot find the current statement.");
-      return;
-    }
-    
-    const wasCorrect = currentGuess === (statement.isTruth ? 'TRUE' : 'LIE');
-    const isCorrect = newGuess === (statement.isTruth ? 'TRUE' : 'LIE');
-
-    let scoreChange = 0;
-    if (isCorrect && !wasCorrect) scoreChange = 1;
-    if (!isCorrect && wasCorrect) scoreChange = -1;
-
-    const updatedPlayers = players.map(p => 
-      p.id === guesserId ? { ...p, score: p.score + scoreChange } : p
-    );
-    
-    await updateGameState({
-      [`round1.guesses.${guesserId}`]: newGuess,
-      players: updatedPlayers,
-    });
-  };
-
-  // NEW: Saves a guess without scoring
-  const handleR1GuessChange = async (guesserId: number, guess: 'TRUE' | 'LIE' | '') => {
-    await updateGameState({ [`round1.guesses.${guesserId}`]: guess });
-  };
-  
-  // MODIFIED: Now handles both revealing and scoring
-  const revealAndScoreR1 = async () => {
-    if (!gameState) return;
-    const { players, round1 } = gameState;
-    const statement = round1.statements.find(s => s.playerId === round1.currentStorytellerId);
-
-    if (!statement) {
-      alert("Error: Storyteller statement not found.");
-      return;
-    }
-    
-    const correctAnswer = statement.isTruth ? 'TRUE' : 'LIE';
-    const updatedPlayers = players.map(player => {
-      const guess = round1.guesses[player.id];
-      if (guess === correctAnswer) {
-        return { ...player, score: player.score + 1 };
-      }
-      return player;
-    });
-
-    await updateGameState({ 
-      'round1.showResult': true,
-      players: updatedPlayers
-    });
-    alert("Result revealed and scores awarded!");
-  };
-
-  // NEW: Reset everything when selecting a new storyteller
-  const selectStorytellerAndReset = async (playerId: number) => {
-    await updateRound1State({ 
-      currentStorytellerId: playerId,
-      votingOpen: false,
-      showResult: false,
-      guesses: { 1: '', 2: '', 3: '', 4: '' }
-    });
-  };
-
-  // NEW: Round 2 functions
-  const toggleStatementVisibility = async (index: number) => {
-    if (!gameState) return;
-    const currentRevealedStatements = gameState.round2.revealedStatements || [false, false, false, false, false];
-    const currentRevealOrder = gameState.round2.revealOrder || [];
-    const newRevealedStatements = [...currentRevealedStatements];
-    
-    if (newRevealedStatements[index]) {
-      // If statement is being hidden, remove from reveal order
-      newRevealedStatements[index] = false;
-      const newRevealOrder = currentRevealOrder.filter((i: number) => i !== index);
-      await updateRound2State({ 
-        revealedStatements: newRevealedStatements,
-        revealOrder: newRevealOrder
-      });
-    } else {
-      // If statement is being revealed, add to reveal order
-      newRevealedStatements[index] = true;
-      const newRevealOrder = [...currentRevealOrder, index];
-      await updateRound2State({ 
-        revealedStatements: newRevealedStatements,
-        revealOrder: newRevealOrder
-      });
-    }
-  };
-
-  // NEW: Round 3 functions
-  const selectStoryteller = async (playerId: number) => {
-    if (!gameState) return;
-    
-    // Find the storyteller's data from the sets
-    const storytellerData = gameState.round3.sets.find(set => set.playerId === playerId);
-    if (!storytellerData) return;
-    
-    // Update round 3 state with selected storyteller
-    await updateRound3State({
-      currentStorytellerId: playerId,
-      currentStatements: storytellerData.statements,
-      trueIndex: storytellerData.trueIndex,
-      nonPlayerGuesses: { 1: null, 2: null, 3: null, 4: null }, // Reset guesses
-      votingOpen: false,
-      showResult: false
-    });
-  };
-
-  const updateNonPlayerGuess = async (playerId: number, guess: number | null) => {
-    if (!gameState) return;
-    const newGuesses = { ...gameState.round3.nonPlayerGuesses };
-    newGuesses[playerId] = guess;
-    await updateRound3State({ nonPlayerGuesses: newGuesses });
-  };
-
-  const openVoting = async () => {
-    if (!gameState) return;
-    await updateRound3State({ votingOpen: true });
-  };
-
-  const closeVoting = async () => {
-    if (!gameState) return;
-    await updateRound3State({ votingOpen: false });
-  };
-
-  const revealResult = async () => {
-    if (!gameState) return;
-    
-    // Calculate points
-    const correctGuessers: number[] = [];
-    const nonStorytellerIds = [1, 2, 3, 4].filter(id => id !== gameState.round3.currentStorytellerId);
-    const safeNonPlayerGuesses = gameState.round3.nonPlayerGuesses || { 1: null, 2: null, 3: null, 4: null };
-    
-    nonStorytellerIds.forEach(playerId => {
-      if (safeNonPlayerGuesses[playerId] === gameState.round3.trueIndex) {
-        correctGuessers.push(playerId);
-      }
-    });
-    
-    // Update player scores
-    const updatedPlayers = [...gameState.players];
-    if (correctGuessers.length > 0) {
-      // Non-players who guessed correctly get 3 points each
-      correctGuessers.forEach(playerId => {
-        const playerIndex = updatedPlayers.findIndex(p => p.id === playerId);
-        if (playerIndex !== -1) {
-          updatedPlayers[playerIndex].score += 3;
-        }
-      });
-    } else {
-      // If no one guessed correctly, storyteller gets points
-      const storytellerIndex = updatedPlayers.findIndex(p => p.id === gameState.round3.currentStorytellerId);
-      if (storytellerIndex !== -1) {
-        updatedPlayers[storytellerIndex].score += 3;
-      }
-    }
-    
-    // Add current storyteller to completed list
-    const updatedCompletedStorytellers = [...(gameState.round3.completedStorytellers || []), gameState.round3.currentStorytellerId];
-    
-    await updateGameState({ 
-      players: updatedPlayers,
-      round3: { ...gameState.round3, showResult: true, completedStorytellers: updatedCompletedStorytellers }
-    });
-  };
-
-  const moveToGuessingPart = async () => {
-    await updateRound2State({ part: 'GUESSING' });
-  };
-
-  // NEW: Start round functions
-  const startRound = async (round: 'R1' | 'R2' | 'R3' | 'R4') => {
-    await updateGameState({ 
-      currentRound: round,
-      roundStarted: false // Start with intro screen
-    });
-  };
-
-  const startRoundContent = async () => {
-    await updateGameState({ roundStarted: true });
-  };
-
-  const roundOrder = ["LOBBY", "R1", "R2", "R3", "R4", "WINNER"];
-  const currentRoundIndex = gameState ? roundOrder.indexOf(gameState.currentRound) : 0;
-
-  if (!gameState) {
-    return <div>Loading Game State...</div>;
-  }
-
   return (
-    <div className="p-8 font-sans bg-gray-50 min-h-screen">
-      <h1 className="text-4xl font-bold mb-8">Operator Control Panel</h1>
-
-      {/* --- Pre-Show Data Upload --- */}
-      <fieldset className={sectionClasses}>
-        <legend className={h2Classes}>Pre-Show Data Upload</legend>
-        <div className="grid grid-cols-3 gap-x-8 gap-y-4 items-start">
-          <div>
-            <label className="font-bold block mb-1">Round 1 Statements CSV</label>
-            <input type="file" accept=".csv" onChange={(e) => handleFileParse(e, 'R1')} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
-            <a href="/round1_sample.csv" download className="text-sm text-blue-600 hover:underline mt-1 block">Download Round 1 Sample CSV</a>
+    <div className="space-y-3 rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+      {Object.entries(counts).map(([label, count]) => {
+        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+        const color = colorMap[label] ?? '#71717a';
+        return (
+          <div key={label} className="flex items-center gap-3">
+            <span className="w-32 font-mono text-sm font-bold shrink-0" style={{ color: '#a1a1aa' }}>{label}</span>
+            <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ backgroundColor: '#27272a' }}>
+              <div
+                className="h-4 rounded-full transition-all duration-700"
+                style={{ width: `${pct}%`, backgroundColor: color }}
+              />
+            </div>
+            <span className="font-mono text-sm w-24 text-right shrink-0 font-bold" style={{ color: '#e4e4e7' }}>
+              {count} · {pct}%
+            </span>
           </div>
-          <div>
-            <label className="font-bold block mb-1">Round 2 Statements CSV</label>
-            <input type="file" accept=".csv" onChange={(e) => handleFileParse(e, 'R2')} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"/>
-            <a href="/round2_sample.csv" download className="text-sm text-green-600 hover:underline mt-1 block">Download Round 2 Sample CSV</a>
-          </div>
-          <div>
-            <label className="font-bold block mb-1">Round 3 Sets CSV</label>
-            <input type="file" accept=".csv" onChange={(e) => handleFileParse(e, 'R3')} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"/>
-            <a href="/round3_sample.csv" download className="text-sm text-violet-600 hover:underline mt-1 block">Download Round 3 Sample CSV</a>
-          </div>
-        </div>
-        <div className="text-center mt-4">
-          <button onClick={importCsvData} className={buttonClasses.primary}>Import CSV Data to Game</button>
-        </div>
-      </fieldset>
-
-      {/* --- Display Controls --- */}
-      <fieldset className={sectionClasses}>
-        <legend className={h2Classes}>Display Controls</legend>
-        <button 
-          onClick={() => updateGameState({ showScoreboard: !gameState?.showScoreboard })} 
-          className={buttonClasses.secondary}
-        >
-          Toggle Scoreboard
-        </button>
-        <button 
-          onClick={() => updateGameState({ showLeaderboardModal: true })} 
-          className={buttonClasses.secondary}
-        >
-          Show Full-Screen Scores
-        </button>
-        <button 
-          onClick={() => updateGameState({ showLeaderboardModal: false })} 
-          className={buttonClasses.secondary}
-        >
-          Hide Full-Screen Scores
-        </button>
-      </fieldset>
-
-      {/* --- General Controls --- */}
-      <div className={sectionClasses}>
-        <h2 className={h2Classes}>Game Controls</h2>
-        <button onClick={initializeGame} className={buttonClasses.secondary}>Reset to Lobby</button>
-        {currentRoundIndex < 1 && <button onClick={() => startRound('R1')} className={buttonClasses.primary}>Start Round 1</button>}
-        {currentRoundIndex < 2 && <button onClick={() => startRound('R2')} className={buttonClasses.primary} disabled={currentRoundIndex < 1}>Start Round 2</button>}
-        {currentRoundIndex < 3 && <button onClick={() => startRound('R3')} className={buttonClasses.primary} disabled={currentRoundIndex < 2}>Start Round 3</button>}
-        {currentRoundIndex < 4 && <button onClick={() => startRound('R4')} className={buttonClasses.primary} disabled={currentRoundIndex < 3}>Start Round 4</button>}
-        {currentRoundIndex < 5 && <button onClick={() => updateGameState({ currentRound: 'WINNER' })} className={buttonClasses.primary} disabled={currentRoundIndex < 4}>Show Winner</button>}
-      </div>
-
-      {/* --- Round 1 Controls --- */}
-      {currentRoundIndex >= 1 && (
-        <fieldset className={sectionClasses} disabled={currentRoundIndex > 1}>
-          <legend className={h2Classes}>Round 1: Better Call Bluff</legend>
-          
-          {!gameState.roundStarted && (
-            <div className="mb-6">
-              <button onClick={startRoundContent} className={buttonClasses.primary}>
-                Start Round 1 Content
-              </button>
-            </div>
-          )}
-          
-              {/* Storyteller Selection */}
-              <div>
-                <strong className={strongClasses}>1. Select Storyteller:</strong>
-                {initialPlayers.map(p => (
-                  <button key={p.id} onClick={() => selectStorytellerAndReset(p.id)} className={buttonClasses.secondary}>{p.name}</button>
-                ))}
-              </div>
-
-              {/* Guesser Inputs */}
-              <div className="my-4">
-                <strong className={strongClasses}>2. Log Guesses:</strong>
-                <div className="my-2 grid grid-cols-3 gap-4">
-                  {initialPlayers.filter(p => p.id !== gameState.round1.currentStorytellerId).map(guesser => (
-                    <div key={guesser.id} className="flex items-center gap-2">
-                      <span className="font-semibold">{guesser.name}:</span>
-                      <select 
-                        onChange={(e) => handleR1GuessChange(guesser.id, e.target.value as any)}
-                        value={gameState.round1.guesses?.[guesser.id] ?? ''}
-                        className="p-2 border rounded"
-                        disabled={gameState.round1.votingOpen}
-                      >
-                        <option value="">-- Select --</option>
-                        <option value="TRUE">True</option>
-                        <option value="LIE">False</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Voting Controls */}
-              <div className="my-4">
-                <strong className={strongClasses}>3. Control Voting:</strong>
-                <button onClick={() => updateRound1State({ votingOpen: true })} className={buttonClasses.secondary} disabled={!gameState.round1.currentStorytellerId}>Open Voting</button>
-                <button onClick={() => updateRound1State({ votingOpen: false })} className={buttonClasses.secondary} disabled={!gameState.round1.votingOpen}>Close Voting</button>
-              </div>
-
-              {/* Reveal Control */}
-              <div className="mt-6">
-                <strong className={strongClasses}>4. Reveal & Score:</strong>
-                <button onClick={revealAndScoreR1} className={buttonClasses.primary} disabled={gameState.round1.votingOpen}>Reveal Truth/Lie</button>
-              </div>
-
-
-        </fieldset>
-      )}
-
-      {/* --- Round 2 Controls --- */}
-      {currentRoundIndex >= 2 && (
-        <fieldset className={sectionClasses} disabled={currentRoundIndex > 2}>
-          <legend className={h2Classes}>Round 2: Phone Out, Cash In</legend>
-          
-          {!gameState.roundStarted && (
-            <div className="mb-6">
-              <button onClick={startRoundContent} className={buttonClasses.primary}>
-                Start Round 2 Content
-              </button>
-            </div>
-          )}
-          
-          {/* Part 1: Statements */}
-          {gameState?.round2.part === 'STATEMENTS' && (
-            <div>
-              <strong className={strongClasses}>Part 1: Display Statements</strong>
-              
-              {/* Statement List with Switches */}
-              <div className="my-4">
-                <p className="text-sm text-gray-600 mb-2">Toggle statements to show on audience:</p>
-                <div className="space-y-3 max-h-60 overflow-y-auto">
-                  {gameState.round2.statements.map((statement, index) => {
-                    const safeRevealedStatements = gameState.round2.revealedStatements || [false, false, false, false, false];
-                    return (
-                      <div key={index} className="flex items-start gap-3 p-3 border rounded bg-gray-50">
-                        <div className="flex items-center">
-                          <button
-                            onClick={() => toggleStatementVisibility(index)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                              safeRevealedStatements[index] ? 'bg-blue-600' : 'bg-gray-300'
-                            }`}
-                          >
-                            <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                safeRevealedStatements[index] ? 'translate-x-6' : 'translate-x-1'
-                              }`}
-                            />
-                          </button>
-                        </div>
-                                              <div className="flex-1">
-                          <span className="text-sm font-semibold text-gray-600">Statement {index + 1}:</span>
-                          <p className="text-sm text-gray-800 mt-1">{statement}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  </div>
-              </div>
-              
-              <div className="mt-6">
-                <button onClick={moveToGuessingPart} className={buttonClasses.primary}>
-                  Move to Guessing Part
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Part 2: Guessing */}
-          {gameState?.round2.part === 'GUESSING' && (
-            <div>
-              <strong className={strongClasses}>Part 2: Value Guessing</strong>
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                {initialPlayers.map(p => (
-                  <div key={p.id}>
-                    <label className="font-bold">{p.name}'s Guess (₹):</label>
-                    <input 
-                      type="number"
-                      className="w-full p-2 border rounded mt-1"
-                      value={r2Guesses[p.id] ?? ''}
-                      onChange={(e) => setR2Guesses(prev => ({ ...prev, [p.id]: e.target.value }))}
-                      onBlur={(e) => handleR2GuessChange(p.id, e.target.value)}
-                    />
-                  </div>
-                ))}
-                <div>
-                  <label className="font-bold">Actual Resale Value (₹):</label>
-                  <input 
-                    type="number" 
-                    className="w-full p-2 border rounded mt-1"
-                    value={r2ActualValue}
-                    onChange={(e) => setR2ActualValue(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="mt-4">
-                <button onClick={revealR2ActualValue} className={buttonClasses.secondary}>Reveal Actual Value</button>
-                <button onClick={revealR2Winner} className={buttonClasses.secondary}>Reveal Winner & Award +4</button>
-              </div>
-            </div>
-          )}
-        </fieldset>
-      )}
-
-      {/* --- Round 3 Controls --- */}
-      {currentRoundIndex >= 3 && (
-        <fieldset className={sectionClasses} disabled={currentRoundIndex > 3}>
-          <legend className={h2Classes}>Round 3: Catch Me If You Can</legend>
-          
-          {!gameState.roundStarted && (
-            <div className="mb-6">
-              <button onClick={startRoundContent} className={buttonClasses.primary}>
-                Start Round 3 Content
-              </button>
-            </div>
-          )}
-
-          {gameState.roundStarted && (
-            <div>
-              {/* Storyteller Selection */}
-              {!gameState.round3.currentStorytellerId && (
-                <div className="mb-6">
-                  <strong className={strongClasses}>Select Storyteller:</strong>
-                  <div className="mt-2 space-x-2">
-                    {initialPlayers
-                      .filter(p => !gameState.round3.completedStorytellers?.includes(p.id))
-                      .map(p => (
-                        <button 
-                          key={p.id} 
-                          onClick={() => selectStoryteller(p.id)} 
-                          className={buttonClasses.secondary}
-                        >
-                          {p.name}
-                        </button>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Current Storyteller Display */}
-              {gameState.round3.currentStorytellerId && (
-                <div className="mb-6">
-                  <strong className={strongClasses}>Current Storyteller:</strong>
-                  <div className="mt-2 p-3 bg-blue-100 rounded">
-                    {initialPlayers.find(p => p.id === gameState.round3.currentStorytellerId)?.name}
-                  </div>
-                </div>
-              )}
-
-              {/* Non-Player Guesses */}
-              {gameState.round3.currentStorytellerId && !gameState.round3.votingOpen && !gameState.round3.showResult && (
-                <div className="mb-6">
-                  <strong className={strongClasses}>Non-Player Guesses:</strong>
-                  <div className="mt-2 space-y-3">
-                    {initialPlayers
-                      .filter(p => p.id !== gameState.round3.currentStorytellerId)
-                      .map(p => {
-                        const safeNonPlayerGuesses = gameState.round3.nonPlayerGuesses || { 1: null, 2: null, 3: null, 4: null };
-                        return (
-                          <div key={p.id} className="flex items-center gap-3">
-                            <span className="font-semibold w-20">{p.name}:</span>
-                            <select 
-                              className="p-2 border rounded"
-                              value={safeNonPlayerGuesses[p.id] ?? ''}
-                              onChange={(e) => updateNonPlayerGuess(p.id, e.target.value ? Number(e.target.value) : null)}
-                            >
-                              <option value="">Select...</option>
-                              <option value="0">Statement 1</option>
-                              <option value="1">Statement 2</option>
-                              <option value="2">Statement 3</option>
-                            </select>
-                          </div>
-                        );
-                      })}
-                  </div>
-                  <div className="mt-4">
-                    <button onClick={openVoting} className={buttonClasses.primary}>
-                      Open Audience Voting
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Voting Controls */}
-              {gameState.round3.votingOpen && !gameState.round3.showResult && (
-                <div className="mb-6">
-                  <strong className={strongClasses}>Audience Voting:</strong>
-                  <div className="mt-2 space-x-2">
-                    <button onClick={closeVoting} className={buttonClasses.secondary}>
-                      Close Voting
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Reveal Controls */}
-              {!gameState.round3.votingOpen && !gameState.round3.showResult && gameState.round3.currentStorytellerId && (
-                <div className="mb-6">
-                  <strong className={strongClasses}>Reveal Result:</strong>
-                  <div className="mt-2 space-x-2">
-                    <button onClick={revealResult} className={buttonClasses.primary}>
-                      Reveal Truth & Award Points
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Result Display */}
-              {gameState.round3.showResult && (
-                <div className="mb-6">
-                  <strong className={strongClasses}>Result:</strong>
-                  <div className="mt-2 p-3 bg-green-100 rounded mb-4">
-                    Result has been revealed on audience display.
-                  </div>
-                  <div className="mt-4">
-                    <strong className={strongClasses}>Select Next Storyteller:</strong>
-                    <div className="mt-2 space-x-2">
-                      {initialPlayers
-                        .filter(p => !gameState.round3.completedStorytellers?.includes(p.id))
-                        .map(p => (
-                          <button 
-                            key={p.id} 
-                            onClick={() => selectStoryteller(p.id)} 
-                            className={buttonClasses.secondary}
-                          >
-                            {p.name}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </fieldset>
-      )}
-
-      {/* --- Round 4 Controls --- */}
-      {currentRoundIndex >= 4 && (
-        <fieldset className={sectionClasses} disabled={currentRoundIndex > 4}>
-          <legend className={h2Classes}>Round 4: Faking Bad</legend>
-          
-          {!gameState.roundStarted && (
-            <div className="mb-6">
-              <button onClick={startRoundContent} className={buttonClasses.primary}>
-                Start Round 4 Content
-              </button>
-            </div>
-          )}
-          <div>
-            <strong className={strongClasses}>Round Winner:</strong>
-            {initialPlayers.map(p => (
-              <button key={p.id} onClick={() => awardPointsR4(p.id)} className={buttonClasses.primary}>
-                Award {p.name} +8 Points
-              </button>
-            ))}
-          </div>
-          <div className="mt-4">
-            <button onClick={() => updateGameState({ 'round4.showRealOwner': true })} className={buttonClasses.secondary}>
-              Reveal Real Owner
-            </button>
-          </div>
-        </fieldset>
-      )}
+        );
+      })}
+      <p className="font-mono text-sm pt-1" style={{ color: '#52525b' }}>TOTAL VOTES: {total}</p>
     </div>
   );
 }
 
-// --- Reusable Tailwind classes ---
-const sectionClasses = "border border-gray-300 rounded-lg p-6 mt-8 bg-white shadow disabled:bg-gray-100 disabled:opacity-70";
-const h2Classes = "text-2xl font-semibold mb-4";
-const strongClasses = "font-bold mr-4";
-const buttonClasses = {
-  primary: "px-6 py-3 text-base font-semibold cursor-pointer m-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed",
-  secondary: "px-6 py-3 text-base font-semibold cursor-pointer m-2 rounded-lg bg-gray-500 text-white hover:bg-gray-600 transition-colors disabled:bg-gray-300",
-};
+
+interface SectionCardProps {
+  id: GameState['phase'];
+  title: string;
+  currentPhase: GameState['phase'];
+  render: () => React.ReactNode;
+}
+
+function SectionCard({ id, title, currentPhase, render }: SectionCardProps) {
+  const isActive = currentPhase === id;
+  const isDone = PHASE_ORDER.indexOf(currentPhase) > PHASE_ORDER.indexOf(id);
+  if (!isActive && !isDone) return null;
+  return (
+    <div
+      className="mb-4 rounded-xl overflow-hidden"
+      style={{ border: isActive ? '2px solid #f59e0b' : '1px solid #27272a', opacity: isDone ? 0.4 : 1 }}
+    >
+      <div
+        className="px-6 py-3 flex items-center justify-between"
+        style={{ backgroundColor: isActive ? '#130f00' : '#111113' }}
+      >
+        <span className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: isActive ? '#f59e0b' : '#52525b' }}>
+          {isActive ? '▶ ' : '✓ '}{title}
+        </span>
+        {isDone && (
+          <span className="font-mono text-sm" style={{ color: '#4ade80' }}>COMPLETED</span>
+        )}
+      </div>
+      {isActive && <div className="p-6">{render()}</div>}
+    </div>
+  );
+}
+
+// ── Vote/open button pair ──────────────────────────────────────────────────
+
+
+// ── Main Component ─────────────────────────────────────────────────────────
+
+export default function OperatorPage() {
+  const [gameState, setGameState] = useState<GameState | null>(null);
+
+  const [playerNames, setPlayerNames] = useState(['Player 1', 'Player 2', 'Player 3']);
+  const [playerPhotos, setPlayerPhotos] = useState<string[]>(['', '', '']);
+  const [warmupData, setWarmupData] = useState<WarmupStatement[]>([]);
+  const [seg1Data, setSeg1Data] = useState<Segment1Statement[]>([]);
+  const [seg2Data, setSeg2Data] = useState<Segment2Statement[]>([]);
+  const [seg3Meta, setSeg3Meta] = useState<{ photoTitle: string } | null>(null);
+  const [seg3Photo, setSeg3Photo] = useState<string>('');
+
+  const [warmupVoteLocked, setWarmupVoteLocked] = useState(false);
+
+  // Timer input + local display (computed from Firestore banterTimer)
+  const [timerInput, setTimerInput] = useState('60');
+  const [timerDisplaySeconds, setTimerDisplaySeconds] = useState(60);
+  const timerTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [seg1Preview, setSeg1Preview] = useState<{ lines: string[]; totals: Record<number, number> } | null>(null);
+  const [seg1Awarded, setSeg1Awarded] = useState(false);
+  const [seg2Preview, setSeg2Preview] = useState<{ lines: string[]; totals: Record<number, number> } | null>(null);
+  const [seg2Awarded, setSeg2Awarded] = useState(false);
+
+  const [seg3ManualWinnerId, setSeg3ManualWinnerId] = useState<number | null>(null);
+  const [origin, setOrigin] = useState('');
+
+  useEffect(() => { setOrigin(window.location.origin); }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'gameState', 'live'), (snap) => {
+      if (snap.exists()) setGameState(snap.data() as GameState);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    setSeg1Preview(null);
+    setSeg1Awarded(false);
+  }, [gameState?.segment1?.currentStorytellerId]);
+
+  useEffect(() => {
+    setSeg2Preview(null);
+    setSeg2Awarded(false);
+  }, [gameState?.segment2?.currentStorytellerId]);
+
+  // Compute local display seconds from Firestore timer state
+  useEffect(() => {
+    const bt = gameState?.banterTimer;
+    if (!bt) return;
+    if (timerTickRef.current) clearInterval(timerTickRef.current);
+    if (bt.running && bt.startedAt !== null) {
+      const tick = () => {
+        const remaining = Math.max(0, bt.totalSeconds - Math.floor((Date.now() - bt.startedAt!) / 1000));
+        setTimerDisplaySeconds(remaining);
+      };
+      tick();
+      timerTickRef.current = setInterval(tick, 250);
+    } else {
+      setTimerDisplaySeconds(bt.totalSeconds);
+    }
+    return () => { if (timerTickRef.current) clearInterval(timerTickRef.current); };
+  }, [gameState?.banterTimer?.running, gameState?.banterTimer?.startedAt, gameState?.banterTimer?.totalSeconds]);
+
+  // ── Firestore helper ───────────────────────────────────────────────────────
+
+  const db_update = async (fields: Record<string, unknown>) => {
+    try {
+      await updateDoc(doc(db, 'gameState', 'live'), fields);
+    } catch (e) {
+      console.error('Firestore update error:', e);
+      alert('Error updating game state. Check console.');
+    }
+  };
+
+  // ── Vote count helper ──────────────────────────────────────────────────────
+
+  function getVoteCounts(votingRound: string, options: string[]): Record<string, number> {
+    const counts = Object.fromEntries(options.map((o) => [o, 0]));
+    Object.values(gameState?.audienceVotes ?? {}).forEach((v) => {
+      if (v.votingRound === votingRound && counts[v.choice] !== undefined) counts[v.choice]++;
+    });
+    return counts;
+  }
+
+  // ── CSV parsers ────────────────────────────────────────────────────────────
+
+  function parseWarmupCsv(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: (results) => {
+        setWarmupData((results.data as Record<string, string>[]).map((row) => ({
+          statement: row.statement,
+          isLie: row.is_lie?.toUpperCase() === 'TRUE',
+        })));
+      },
+      error: (err) => alert(`CSV error: ${err.message}`),
+    });
+  }
+
+  function parseSeg1Csv(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: (results) => {
+        setSeg1Data((results.data as Record<string, string>[]).map((row) => ({
+          playerId: parseInt(row.player_id, 10),
+          playerName: row.player_name,
+          statement: row.statement,
+          isLie: row.is_lie?.toUpperCase() === 'TRUE',
+        })));
+      },
+      error: (err) => alert(`CSV error: ${err.message}`),
+    });
+  }
+
+  function parseSeg2Csv(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: (results) => {
+        setSeg2Data((results.data as Record<string, string>[]).map((row) => ({
+          playerId: parseInt(row.player_id, 10),
+          playerName: row.player_name,
+          statement1: row.statement_1,
+          statement2: row.statement_2,
+          lieIndex: parseInt(row.lie_index, 10) as 1 | 2,
+        })));
+      },
+      error: (err) => alert(`CSV error: ${err.message}`),
+    });
+  }
+
+  function parseSeg3Csv(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: (results) => {
+        const row = (results.data as Record<string, string>[])[0];
+        if (row) setSeg3Meta({ photoTitle: row.photo_title });
+      },
+      error: (err) => alert(`CSV error: ${err.message}`),
+    });
+  }
+
+  function loadPhotoAsBase64(file: File, onDone: (b64: string) => void) {
+    const reader = new FileReader();
+    reader.onload = (ev) => onDone(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  // ── Setup: validate & start ────────────────────────────────────────────────
+
+  function validateAndStart() {
+    const errors: string[] = [];
+    if (playerNames.some((n) => !n.trim())) errors.push('All 3 player names must be filled.');
+    if (warmupData.length < 1) errors.push('Warmup CSV must have at least 1 row.');
+    if (seg1Data.length !== 3) errors.push('Segment 1 CSV must have exactly 3 rows (one per player).');
+    if (seg2Data.length !== 3) errors.push('Segment 2 CSV must have exactly 3 rows (one per player).');
+    if (!seg3Meta) errors.push('Segment 3 CSV must be uploaded.');
+    if (errors.length > 0) { alert(errors.join('\n')); return; }
+
+    const newState: GameState = {
+      ...initialGameState,
+      phase: 'WARMUP',
+      players: playerNames.map((name, i) => ({
+        id: i + 1, name: name.trim(), score: 0, photo: playerPhotos[i] || `/player${i + 1}.png`,
+      })),
+      warmup: { ...initialGameState.warmup, statements: warmupData },
+      segment1: { ...initialGameState.segment1, statements: seg1Data },
+      segment2: { ...initialGameState.segment2, statements: seg2Data },
+      segment3: { ...initialGameState.segment3, photoUrl: seg3Photo || null, photoTitle: seg3Meta!.photoTitle },
+    };
+    setDoc(doc(db, 'gameState', 'live'), newState)
+      .then(() => alert('Show started! Phase set to WARMUP.'))
+      .catch((e: Error) => alert(`Error: ${e.message}`));
+  }
+
+  // ── Segment 1 scoring ──────────────────────────────────────────────────────
+
+  function calcSeg1Points() {
+    if (!gameState) return;
+    const { players, segment1 } = gameState;
+    const stmtObj = segment1.statements.find((s) => s.playerId === segment1.currentStorytellerId);
+    if (!stmtObj) return;
+    const storytellerId = segment1.currentStorytellerId!;
+    const correctAnswer = stmtObj.isLie ? 'LIE' : 'TRUTH';
+    const nonStorytellers = players.filter((p) => p.id !== storytellerId);
+    const totals: Record<number, number> = Object.fromEntries(players.map((p) => [p.id, 0]));
+    const storytellerName = players.find((p) => p.id === storytellerId)?.name ?? 'Storyteller';
+    const lines: string[] = [];
+    nonStorytellers.forEach((player) => {
+      const vote = segment1.playerVotes[player.id];
+      if (vote === correctAnswer) {
+        totals[player.id] += 50;
+        lines.push(`${player.name} voted ${vote} → CORRECT → ${player.name} +50 pts`);
+      } else if (vote) {
+        totals[storytellerId] += 50;
+        lines.push(`${player.name} voted ${vote} → WRONG → ${storytellerName} +50 pts`);
+      } else {
+        lines.push(`${player.name} did not vote`);
+      }
+    });
+    setSeg1Preview({ lines, totals });
+  }
+
+  async function awardSeg1Points() {
+    if (!gameState || !seg1Preview) return;
+    const { players, segment1 } = gameState;
+    const updatedPlayers = players.map((p) => ({ ...p, score: p.score + (seg1Preview.totals[p.id] ?? 0) }));
+    await db_update({
+      players: updatedPlayers,
+      'segment1.completedStorytellers': [...segment1.completedStorytellers, segment1.currentStorytellerId],
+      'segment1.currentStorytellerId': null,
+      'segment1.showResult': false,
+      'segment1.audienceVotingOpen': false,
+      'segment1.playerVotes': { 1: null, 2: null, 3: null },
+    });
+    setSeg1Awarded(true);
+  }
+
+  // ── Segment 2 scoring ──────────────────────────────────────────────────────
+
+  function calcSeg2Points() {
+    if (!gameState) return;
+    const { players, segment2 } = gameState;
+    const stmtObj = segment2.statements.find((s) => s.playerId === segment2.currentStorytellerId);
+    if (!stmtObj) return;
+    const storytellerId = segment2.currentStorytellerId!;
+    const correctAnswer = stmtObj.lieIndex === 1 ? 'STATEMENT1' : 'STATEMENT2';
+    const nonStorytellers = players.filter((p) => p.id !== storytellerId);
+    const totals: Record<number, number> = Object.fromEntries(players.map((p) => [p.id, 0]));
+    const storytellerName = players.find((p) => p.id === storytellerId)?.name ?? 'Storyteller';
+    const lines: string[] = [];
+    nonStorytellers.forEach((player) => {
+      const vote = segment2.playerVotes[player.id];
+      if (vote === correctAnswer) {
+        totals[player.id] += 100;
+        lines.push(`${player.name} voted ${vote} → CORRECT → ${player.name} +100 pts`);
+      } else if (vote) {
+        totals[storytellerId] += 100;
+        lines.push(`${player.name} voted ${vote} → WRONG → ${storytellerName} +100 pts`);
+      } else {
+        lines.push(`${player.name} did not vote`);
+      }
+    });
+    setSeg2Preview({ lines, totals });
+  }
+
+  async function awardSeg2Points() {
+    if (!gameState || !seg2Preview) return;
+    const { players, segment2 } = gameState;
+    const updatedPlayers = players.map((p) => ({ ...p, score: p.score + (seg2Preview.totals[p.id] ?? 0) }));
+    await db_update({
+      players: updatedPlayers,
+      'segment2.completedStorytellers': [...segment2.completedStorytellers, segment2.currentStorytellerId],
+      'segment2.currentStorytellerId': null,
+      'segment2.showResult': false,
+      'segment2.audienceVotingOpen': false,
+      'segment2.playerVotes': { 1: null, 2: null, 3: null },
+    });
+    setSeg2Awarded(true);
+  }
+
+  // ── Segment 3 winner ───────────────────────────────────────────────────────
+
+  function getSeg3Winner() {
+    if (!gameState) return null;
+    const { players } = gameState;
+    const counts: Record<number, number> = Object.fromEntries(players.map((p) => [p.id, 0]));
+    Object.values(gameState.audienceVotes ?? {}).forEach((v) => {
+      if (v.votingRound === 'seg3') {
+        const id = parseInt(v.choice, 10);
+        if (counts[id] !== undefined) counts[id]++;
+      }
+    });
+    const maxCount = Math.max(...Object.values(counts));
+    const winners = players.filter((p) => counts[p.id] === maxCount);
+    return { counts, winners, isTie: winners.length > 1, maxCount };
+  }
+
+  async function awardSeg3Points(winnerId: number) {
+    if (!gameState) return;
+    const updatedPlayers = gameState.players.map((p) =>
+      p.id === winnerId ? { ...p, score: p.score + 300 } : p
+    );
+    await db_update({ players: updatedPlayers, 'segment3.winnerId': winnerId, 'segment3.showResult': true });
+  }
+
+  // ── Render helpers (plain functions, NOT component definitions) ────────────
+
+  function renderBanterTimer() {
+    const bt = gameState?.banterTimer;
+    const isRunning = bt?.running ?? false;
+    const mins = Math.floor(timerDisplaySeconds / 60);
+    const secs = String(timerDisplaySeconds % 60).padStart(2, '0');
+    const isUrgent = timerDisplaySeconds <= 10 && timerDisplaySeconds > 0;
+    const isDone = timerDisplaySeconds === 0;
+    const parsedInput = Math.max(1, parseInt(timerInput) || 60);
+
+    return (
+      <div className="rounded-xl p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+        <p className="font-mono text-xs uppercase tracking-widest mb-3" style={{ color: '#52525b' }}>Banter Timer</p>
+        <div className="flex items-center gap-4 mb-4">
+          <span
+            className="font-mono text-5xl font-bold tabular-nums"
+            style={{ color: isDone ? '#f87171' : isUrgent ? '#fbbf24' : '#fafafa' }}
+          >
+            {mins}:{secs}
+          </span>
+          {isRunning && (
+            <span className="font-mono text-sm" style={{ color: '#4ade80' }}>
+              <span className="inline-block w-2 h-2 rounded-full mr-1.5 animate-pulse" style={{ backgroundColor: '#4ade80' }} />
+              RUNNING
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 mb-3">
+          <input
+            type="number"
+            min={1}
+            max={600}
+            value={timerInput}
+            onChange={(e) => setTimerInput(e.target.value)}
+            disabled={isRunning}
+            className="w-24 px-3 py-2 rounded font-mono text-sm outline-none disabled:opacity-40"
+            style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', color: '#fafafa' }}
+            placeholder="60"
+          />
+          <span className="font-mono text-xs" style={{ color: '#52525b' }}>seconds</span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            disabled={isRunning || (isDone && !bt?.startedAt)}
+            onClick={() => db_update({ 'banterTimer.running': true, 'banterTimer.startedAt': Date.now(), 'banterTimer.totalSeconds': parsedInput })}
+            className="px-4 py-2.5 rounded font-mono text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{ backgroundColor: '#f59e0b', color: '#09090b' }}
+          >
+            START
+          </button>
+          <button
+            disabled={!isRunning}
+            onClick={() => db_update({ 'banterTimer.running': false, 'banterTimer.startedAt': null, 'banterTimer.totalSeconds': timerDisplaySeconds })}
+            className="px-4 py-2.5 rounded font-mono text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{ backgroundColor: '#27272a', color: '#a1a1aa', border: '1px solid #3f3f46' }}
+          >
+            STOP
+          </button>
+          <button
+            onClick={() => db_update({ 'banterTimer.running': false, 'banterTimer.startedAt': null, 'banterTimer.totalSeconds': parsedInput })}
+            className="px-4 py-2.5 rounded font-mono text-sm font-bold transition-colors"
+            style={{ backgroundColor: '#27272a', color: '#a1a1aa', border: '1px solid #3f3f46' }}
+          >
+            RESET
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderRightPanel() {
+    if (!gameState) return null;
+
+    // Determine current vote context
+    type VoteCtx = { isOpen: boolean; onOpen: () => void; onLock: () => void; label: string } | null;
+    const voteCtx: VoteCtx = (() => {
+      switch (currentPhase) {
+        case 'WARMUP':
+          return {
+            isOpen: gameState.warmup.audienceVotingOpen,
+            onOpen: () => db_update({ 'warmup.audienceVotingOpen': true }),
+            onLock: () => { setWarmupVoteLocked(true); db_update({ 'warmup.audienceVotingOpen': false }); },
+            label: 'WARMUP VOTE',
+          };
+        case 'SEGMENT1':
+          if (!gameState.segment1.currentStorytellerId) return null;
+          return {
+            isOpen: gameState.segment1.audienceVotingOpen,
+            onOpen: () => db_update({ 'segment1.audienceVotingOpen': true }),
+            onLock: () => db_update({ 'segment1.audienceVotingOpen': false }),
+            label: 'AUDIENCE VOTE',
+          };
+        case 'SEGMENT2':
+          if (!gameState.segment2.currentStorytellerId) return null;
+          return {
+            isOpen: gameState.segment2.audienceVotingOpen,
+            onOpen: () => db_update({ 'segment2.audienceVotingOpen': true }),
+            onLock: () => db_update({ 'segment2.audienceVotingOpen': false }),
+            label: 'AUDIENCE VOTE',
+          };
+        case 'SEGMENT3':
+          return {
+            isOpen: gameState.segment3.audienceVotingOpen,
+            onOpen: () => db_update({ 'segment3.audienceVotingOpen': true }),
+            onLock: () => db_update({ 'segment3.audienceVotingOpen': false }),
+            label: 'AUDIENCE VOTE',
+          };
+        default:
+          return null;
+      }
+    })();
+
+    const panelBtn = (label: string, onClick: () => void, style: React.CSSProperties, disabled = false) => (
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        className="w-full px-4 py-3 rounded-lg font-mono text-sm font-bold text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        style={style}
+      >
+        {label}
+      </button>
+    );
+
+    return (
+      <aside
+        className="w-56 shrink-0 sticky self-start overflow-y-auto"
+        style={{
+          top: '73px',
+          height: 'calc(100vh - 73px)',
+          borderLeft: '1px solid #27272a',
+          backgroundColor: '#0a0a0c',
+        }}
+      >
+        <div className="p-4 space-y-6">
+
+          {/* Audience Vote */}
+          {voteCtx ? (
+            <div className="space-y-2">
+              <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>{voteCtx.label}</p>
+              {panelBtn(
+                'OPEN VOTE',
+                voteCtx.onOpen,
+                { backgroundColor: voteCtx.isOpen ? '#1a1a1a' : '#052e16', color: voteCtx.isOpen ? '#3f3f46' : '#4ade80', border: `1px solid ${voteCtx.isOpen ? '#27272a' : '#166534'}` },
+                voteCtx.isOpen,
+              )}
+              {panelBtn(
+                'LOCK VOTE',
+                voteCtx.onLock,
+                { backgroundColor: !voteCtx.isOpen ? '#1a1a1a' : '#450a0a', color: !voteCtx.isOpen ? '#3f3f46' : '#f87171', border: `1px solid ${!voteCtx.isOpen ? '#27272a' : '#7f1d1d'}` },
+                !voteCtx.isOpen,
+              )}
+              {voteCtx.isOpen && (
+                <div className="flex items-center gap-2 px-1 py-1">
+                  <span className="w-2 h-2 rounded-full animate-pulse shrink-0" style={{ backgroundColor: '#4ade80' }} />
+                  <span className="font-mono text-sm" style={{ color: '#4ade80' }}>VOTING LIVE</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>AUDIENCE VOTE</p>
+              <p className="font-mono text-xs" style={{ color: '#3f3f46' }}>No active vote in this phase</p>
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid #27272a' }} />
+
+          {/* Display controls */}
+          <div className="space-y-2">
+            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>DISPLAY</p>
+            {panelBtn(
+              gameState.showScoreboard ? '● Scoreboard ON' : '○ Scoreboard OFF',
+              () => db_update({ showScoreboard: !gameState.showScoreboard }),
+              { border: '1px solid #27272a', backgroundColor: 'transparent', color: gameState.showScoreboard ? '#4ade80' : '#52525b' },
+            )}
+            {panelBtn(
+              gameState.showLeaderboardModal ? '● Leaderboard ON' : '○ Leaderboard OFF',
+              () => db_update({ showLeaderboardModal: !gameState.showLeaderboardModal }),
+              { border: '1px solid #27272a', backgroundColor: 'transparent', color: gameState.showLeaderboardModal ? '#4ade80' : '#52525b' },
+            )}
+          </div>
+
+          <div style={{ borderTop: '1px solid #27272a' }} />
+
+          {/* Reset */}
+          <div className="space-y-2">
+            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>DANGER</p>
+            {panelBtn(
+              'RESET GAME',
+              () => { if (confirm('Reset the entire game? This cannot be undone.')) setDoc(doc(db, 'gameState', 'live'), initialGameState); },
+              { backgroundColor: '#1c0000', color: '#f87171', border: '1px solid #7f1d1d' },
+            )}
+          </div>
+
+        </div>
+      </aside>
+    );
+  }
+
+  function renderSetup() {
+    return (
+      <div className="grid grid-cols-2 gap-8">
+        {/* Left: players */}
+        <div className="space-y-5">
+          <p className="font-mono text-sm uppercase tracking-widest" style={{ color: '#52525b' }}>Players</p>
+          <div className="space-y-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="font-mono text-sm w-6 shrink-0" style={{ color: '#52525b' }}>P{i + 1}</span>
+                <input
+                  type="text"
+                  value={playerNames[i]}
+                  onChange={(e) => setPlayerNames((prev) => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                  placeholder={`Player ${i + 1} name`}
+                  className="flex-1 px-4 py-3 rounded-lg text-base outline-none transition-colors font-mono"
+                  style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                  onFocus={(e) => (e.target.style.borderColor = '#f59e0b')}
+                  onBlur={(e) => (e.target.style.borderColor = '#3f3f46')}
+                />
+                <label className="cursor-pointer px-4 py-3 rounded-lg font-mono text-sm transition-colors shrink-0"
+                  style={{ border: '1px solid #3f3f46', color: '#71717a' }}>
+                  Photo
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) loadPhotoAsBase64(file, (b64) => setPlayerPhotos((prev) => { const p = [...prev]; p[i] = b64; return p; }));
+                  }} />
+                </label>
+                {playerPhotos[i] && (
+                  <img src={playerPhotos[i]} className="w-11 h-11 rounded-full object-cover shrink-0"
+                    style={{ outline: '2px solid #f59e0b', outlineOffset: '2px' }} alt="" />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={validateAndStart}
+            className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors mt-4"
+            style={{ backgroundColor: '#f59e0b', color: '#09090b' }}
+          >
+            VALIDATE &amp; START SHOW →
+          </button>
+        </div>
+
+        {/* Right: CSV uploads + photo */}
+        <div className="space-y-4">
+          {[
+            { label: 'WARMUP CSV', sample: '/warmup_sample.csv', onChange: parseWarmupCsv, count: warmupData.length, preview: warmupData.map((r) => r.statement) },
+            { label: 'SEGMENT 1 CSV', sample: '/segment1_sample.csv', onChange: parseSeg1Csv, count: seg1Data.length, preview: seg1Data.map((r) => `${r.playerName}: ${r.statement}`) },
+            { label: 'SEGMENT 2 CSV', sample: '/segment2_sample.csv', onChange: parseSeg2Csv, count: seg2Data.length, preview: seg2Data.map((r) => `${r.playerName}: "${r.statement1}" / "${r.statement2}"`) },
+            { label: 'SEGMENT 3 CSV', sample: '/segment3_sample.csv', onChange: parseSeg3Csv, count: seg3Meta ? 1 : 0, preview: seg3Meta ? [seg3Meta.photoTitle] : [] },
+          ].map(({ label, sample, onChange, count, preview }) => (
+            <div key={label} className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: '#a1a1aa' }}>{label}</span>
+                <div className="flex items-center gap-3">
+                  {count > 0 && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ {count} row{count !== 1 ? 's' : ''}</span>}
+                  <a href={sample} download className="font-mono text-sm underline" style={{ color: '#f59e0b' }}>sample</a>
+                </div>
+              </div>
+              <label className="cursor-pointer inline-flex">
+                <span className="px-4 py-2 rounded font-mono text-sm transition-colors" style={{ border: '1px solid #3f3f46', color: '#71717a' }}>
+                  Choose file
+                </span>
+                <input type="file" accept=".csv" onChange={onChange} className="hidden" />
+              </label>
+              {count > 0 && (
+                <div className="mt-2 space-y-0.5 max-h-16 overflow-y-auto">
+                  {preview.map((line, i) => (
+                    <p key={i} className="font-mono text-sm truncate" style={{ color: '#52525b' }}>{i + 1}. {line}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <div className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+            <p className="font-mono text-sm font-bold uppercase tracking-widest mb-3" style={{ color: '#a1a1aa' }}>SEGMENT 3 OBJECT PHOTO</p>
+            <label className="cursor-pointer inline-flex">
+              <span className="px-4 py-2 rounded font-mono text-sm" style={{ border: '1px solid #3f3f46', color: '#71717a' }}>Choose photo</span>
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) loadPhotoAsBase64(file, setSeg3Photo);
+              }} />
+            </label>
+            {seg3Photo && <img src={seg3Photo} alt="Object preview" className="h-24 rounded-lg object-cover mt-3" style={{ border: '1px solid #3f3f46' }} />}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderWarmup() {
+    if (!gameState) return null;
+    const { warmup } = gameState;
+    const stmt = warmup.statements[warmup.currentIndex];
+    const counts = getVoteCounts(`warmup-${warmup.currentIndex}`, ['TRUTH', 'LIE']);
+
+    const goTo = (newIndex: number) => {
+      setWarmupVoteLocked(false);
+      db_update({ 'warmup.currentIndex': newIndex, 'warmup.audienceVotingOpen': false, 'warmup.showResult': false, audienceVotes: {} });
+    };
+
+    return (
+      <div className="grid grid-cols-2 gap-6">
+        {/* Left: statement + nav */}
+        <div className="space-y-5">
+          <div className="rounded-xl p-5" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+            <p className="font-mono text-sm uppercase tracking-widest mb-3" style={{ color: '#52525b' }}>
+              STATEMENT {warmup.currentIndex + 1} OF {warmup.statements.length}
+            </p>
+            <p className="text-lg leading-relaxed" style={{ color: '#fafafa' }}>{stmt?.statement}</p>
+            <div className="mt-4 pt-4" style={{ borderTop: '1px solid #27272a' }}>
+              <span
+                className="font-mono text-sm font-bold px-3 py-1 rounded"
+                style={{ backgroundColor: stmt?.isLie ? '#450a0a' : '#052e16', color: stmt?.isLie ? '#f87171' : '#4ade80' }}
+              >
+                ANSWER: {stmt?.isLie ? 'LIE' : 'TRUTH'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button disabled={warmup.currentIndex === 0} onClick={() => goTo(warmup.currentIndex - 1)}
+              className="px-6 py-3 rounded-lg font-mono text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              style={{ border: '1px solid #3f3f46', color: '#a1a1aa' }}>
+              ← PREV
+            </button>
+            <button disabled={warmup.currentIndex >= warmup.statements.length - 1} onClick={() => goTo(warmup.currentIndex + 1)}
+              className="px-6 py-3 rounded-lg font-mono text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              style={{ border: '1px solid #3f3f46', color: '#a1a1aa' }}>
+              NEXT →
+            </button>
+          </div>
+
+          <div className="pt-4" style={{ borderTop: '1px solid #27272a' }}>
+            <button onClick={() => db_update({ phase: 'SEGMENT1' })}
+              className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+              style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+              MOVE TO SEGMENT 1 →
+            </button>
+          </div>
+        </div>
+
+        {/* Right: vote bars + reveal */}
+        <div className="space-y-5">
+          <VoteBars counts={counts} />
+          {warmupVoteLocked && !warmup.showResult && (
+            <button onClick={() => db_update({ 'warmup.showResult': true })}
+              className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+              style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+              REVEAL ANSWER
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderStorytellersGrid(
+    players: Player[],
+    completedStorytellers: number[],
+    currentStorytellerId: number | null,
+    onSelect: (id: number) => void,
+  ) {
+    return (
+      <div>
+        <p className="font-mono text-sm uppercase tracking-widest mb-4" style={{ color: '#52525b' }}>Select Storyteller</p>
+        <div className="grid grid-cols-3 gap-3">
+          {players.map((player) => {
+            const isDone = completedStorytellers.includes(player.id);
+            const isSelected = currentStorytellerId === player.id;
+            return (
+              <button
+                key={player.id}
+                disabled={isDone}
+                onClick={() => onSelect(player.id)}
+                className="flex flex-col items-center gap-3 p-5 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                style={{
+                  border: isSelected ? '2px solid #f59e0b' : '1px solid #3f3f46',
+                  backgroundColor: isSelected ? '#130f00' : '#18181b',
+                }}
+              >
+                {player.photo && (
+                  <img src={player.photo} className="w-16 h-16 rounded-full object-cover" alt="" />
+                )}
+                <span className="font-mono text-base font-bold" style={{ color: isSelected ? '#f59e0b' : '#a1a1aa' }}>
+                  {player.name}
+                </span>
+                {isDone && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ DONE</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function renderSeg1() {
+    if (!gameState) return null;
+    const { segment1, players } = gameState;
+    const stmtObj = segment1.statements.find((s) => s.playerId === segment1.currentStorytellerId);
+    const nonStorytellers = players.filter((p) => p.id !== segment1.currentStorytellerId);
+    const counts = getVoteCounts(`seg1-${segment1.currentStorytellerId}`, ['TRUTH', 'LIE']);
+    const allDone = segment1.completedStorytellers.length === players.length;
+
+    return (
+      <div className="space-y-6">
+        {renderStorytellersGrid(players, segment1.completedStorytellers, segment1.currentStorytellerId, (id) =>
+          db_update({
+            'segment1.currentStorytellerId': id,
+            'segment1.playerVotes': { 1: null, 2: null, 3: null },
+            'segment1.audienceVotingOpen': false,
+            'segment1.showResult': false,
+          })
+        )}
+
+        {stmtObj && (
+          <div className="grid grid-cols-2 gap-6">
+            {/* Left col: statement + player votes */}
+            <div className="space-y-5">
+              <div className="rounded-xl p-5" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+                <p className="font-mono text-xs uppercase tracking-widest mb-3" style={{ color: '#52525b' }}>STATEMENT</p>
+                <p className="text-lg leading-relaxed" style={{ color: '#fafafa' }}>{stmtObj.statement}</p>
+                <div className="mt-4 pt-4" style={{ borderTop: '1px solid #27272a' }}>
+                  <span className="font-mono text-sm font-bold px-3 py-1 rounded"
+                    style={{ backgroundColor: stmtObj.isLie ? '#450a0a' : '#052e16', color: stmtObj.isLie ? '#f87171' : '#4ade80' }}>
+                    ANSWER: {stmtObj.isLie ? 'LIE' : 'TRUTH'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <p className="font-mono text-sm uppercase tracking-widest mb-4" style={{ color: '#52525b' }}>Log Player Votes</p>
+                <div className="space-y-3">
+                  {nonStorytellers.map((player) => (
+                    <div key={player.id} className="flex items-center gap-3">
+                      <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                      {(['TRUTH', 'LIE'] as const).map((vote) => {
+                        const selected = segment1.playerVotes[player.id] === vote;
+                        const isLie = vote === 'LIE';
+                        return (
+                          <button key={vote}
+                            onClick={() => db_update({ [`segment1.playerVotes.${player.id}`]: vote })}
+                            className="flex-1 py-3 rounded-lg font-mono text-sm font-bold transition-colors"
+                            style={{
+                              backgroundColor: selected ? (isLie ? '#450a0a' : '#052e16') : '#27272a',
+                              color: selected ? (isLie ? '#f87171' : '#4ade80') : '#71717a',
+                              border: `1px solid ${selected ? (isLie ? '#7f1d1d' : '#166534') : '#3f3f46'}`,
+                            }}>
+                            {vote}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Right col: timer + vote bars + reveal + points */}
+            <div className="space-y-5">
+              {renderBanterTimer()}
+              <VoteBars counts={counts} />
+
+              {!segment1.showResult && (
+                <button onClick={() => { db_update({ 'segment1.showResult': true }); calcSeg1Points(); }}
+                  className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+                  style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+                  REVEAL TRUTH / LIE
+                </button>
+              )}
+
+              {seg1Preview && !seg1Awarded && (
+                <div className="rounded-xl p-5 space-y-3"
+                  style={{ backgroundColor: '#0d0d0f', border: '1px solid #78350f' }}>
+                  <p className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: '#f59e0b' }}>POINTS BREAKDOWN</p>
+                  {seg1Preview.lines.map((line, i) => (
+                    <p key={i} className="font-mono text-sm" style={{ color: '#a1a1aa' }}>{line}</p>
+                  ))}
+                  <p className="font-mono text-sm font-bold" style={{ color: '#fafafa' }}>
+                    TOTAL: {players.map((p) => seg1Preview.totals[p.id] ? `${p.name} +${seg1Preview.totals[p.id]}` : null).filter(Boolean).join(', ') || 'No changes'}
+                  </p>
+                  <button onClick={awardSeg1Points}
+                    className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+                    style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+                    CONFIRM &amp; AWARD POINTS
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="pt-4" style={{ borderTop: '1px solid #27272a' }}>
+          {allDone ? (
+            <button onClick={() => db_update({ phase: 'SEGMENT2' })}
+              className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+              style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+              MOVE TO SEGMENT 2 →
+            </button>
+          ) : (
+            <p className="font-mono text-sm" style={{ color: '#52525b' }}>
+              {segment1.completedStorytellers.length} OF {players.length} STORYTELLERS DONE
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderSeg2() {
+    if (!gameState) return null;
+    const { segment2, players } = gameState;
+    const stmtObj = segment2.statements.find((s) => s.playerId === segment2.currentStorytellerId);
+    const nonStorytellers = players.filter((p) => p.id !== segment2.currentStorytellerId);
+    const counts = getVoteCounts(`seg2-${segment2.currentStorytellerId}`, ['STATEMENT1', 'STATEMENT2']);
+    const allDone = segment2.completedStorytellers.length === players.length;
+
+    return (
+      <div className="space-y-6">
+        {renderStorytellersGrid(players, segment2.completedStorytellers, segment2.currentStorytellerId, (id) =>
+          db_update({
+            'segment2.currentStorytellerId': id,
+            'segment2.playerVotes': { 1: null, 2: null, 3: null },
+            'segment2.audienceVotingOpen': false,
+            'segment2.showResult': false,
+          })
+        )}
+
+        {stmtObj && (
+          <div className="grid grid-cols-2 gap-6">
+            {/* Left col: statements + player votes */}
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl p-4" style={{ border: '1px solid #78350f', backgroundColor: '#0f0900' }}>
+                  <p className="font-mono text-sm font-bold mb-2" style={{ color: '#fbbf24' }}>STATEMENT 1</p>
+                  <p className="text-base leading-relaxed" style={{ color: '#fafafa' }}>{stmtObj.statement1}</p>
+                </div>
+                <div className="rounded-xl p-4" style={{ border: '1px solid #4c1d95', backgroundColor: '#080010' }}>
+                  <p className="font-mono text-sm font-bold mb-2" style={{ color: '#a78bfa' }}>STATEMENT 2</p>
+                  <p className="text-base leading-relaxed" style={{ color: '#fafafa' }}>{stmtObj.statement2}</p>
+                </div>
+              </div>
+              <span className="font-mono text-sm font-bold px-3 py-1.5 rounded inline-block"
+                style={{ backgroundColor: '#1c0a00', color: '#f59e0b', border: '1px solid #78350f' }}>
+                LIE IS STATEMENT {stmtObj.lieIndex}
+              </span>
+
+              <div>
+                <p className="font-mono text-sm uppercase tracking-widest mb-4" style={{ color: '#52525b' }}>Log Player Votes</p>
+                <div className="space-y-3">
+                  {nonStorytellers.map((player) => (
+                    <div key={player.id} className="flex items-center gap-3">
+                      <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                      {([
+                        { value: 'STATEMENT1', label: 'STMT 1 IS LIE', bg: '#78350f', color: '#fbbf24', border: '#92400e' },
+                        { value: 'STATEMENT2', label: 'STMT 2 IS LIE', bg: '#4c1d95', color: '#c4b5fd', border: '#5b21b6' },
+                      ] as const).map(({ value, label, bg, color, border }) => {
+                        const selected = segment2.playerVotes[player.id] === value;
+                        return (
+                          <button key={value}
+                            onClick={() => db_update({ [`segment2.playerVotes.${player.id}`]: value })}
+                            className="flex-1 py-3 rounded-lg font-mono text-sm font-bold transition-colors"
+                            style={{
+                              backgroundColor: selected ? bg : '#27272a',
+                              color: selected ? color : '#71717a',
+                              border: `1px solid ${selected ? border : '#3f3f46'}`,
+                            }}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Right col: timer + vote bars + reveal + points */}
+            <div className="space-y-5">
+              {renderBanterTimer()}
+              <VoteBars counts={counts} />
+
+              {!segment2.showResult && (
+                <button onClick={() => { db_update({ 'segment2.showResult': true }); calcSeg2Points(); }}
+                  className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+                  style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+                  REVEAL TRUTH / LIE
+                </button>
+              )}
+
+              {seg2Preview && !seg2Awarded && (
+                <div className="rounded-xl p-5 space-y-3"
+                  style={{ backgroundColor: '#0d0d0f', border: '1px solid #78350f' }}>
+                  <p className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: '#f59e0b' }}>POINTS BREAKDOWN</p>
+                  {seg2Preview.lines.map((line, i) => (
+                    <p key={i} className="font-mono text-sm" style={{ color: '#a1a1aa' }}>{line}</p>
+                  ))}
+                  <p className="font-mono text-sm font-bold" style={{ color: '#fafafa' }}>
+                    TOTAL: {players.map((p) => seg2Preview.totals[p.id] ? `${p.name} +${seg2Preview.totals[p.id]}` : null).filter(Boolean).join(', ') || 'No changes'}
+                  </p>
+                  <button onClick={awardSeg2Points}
+                    className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+                    style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+                    CONFIRM &amp; AWARD POINTS
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="pt-4" style={{ borderTop: '1px solid #27272a' }}>
+          {allDone ? (
+            <button onClick={() => db_update({ phase: 'SEGMENT3' })}
+              className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+              style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+              MOVE TO SEGMENT 3 →
+            </button>
+          ) : (
+            <p className="font-mono text-sm" style={{ color: '#52525b' }}>
+              {segment2.completedStorytellers.length} OF {players.length} STORYTELLERS DONE
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderSeg3() {
+    if (!gameState) return null;
+    const { segment3, players } = gameState;
+    const seg3Result = getSeg3Winner();
+
+    const playerVoteCounts: Record<number, number> = Object.fromEntries(players.map((p) => [p.id, 0]));
+    Object.values(gameState.audienceVotes ?? {}).forEach((v) => {
+      if (v.votingRound === 'seg3') {
+        const id = parseInt(v.choice, 10);
+        if (playerVoteCounts[id] !== undefined) playerVoteCounts[id]++;
+      }
+    });
+    const totalVotes = Object.values(playerVoteCounts).reduce((a, b) => a + b, 0);
+
+    // Bug fix: manual winner only applies when there IS an active tie
+    const effectiveWinnerId = seg3Result?.isTie
+      ? seg3ManualWinnerId
+      : seg3Result?.winners[0]?.id ?? null;
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-5 items-start">
+          <div className="rounded-xl p-5" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+            <p className="font-mono text-sm uppercase tracking-widest mb-3" style={{ color: '#52525b' }}>OBJECT: {segment3.photoTitle}</p>
+            {segment3.photoUrl && (
+              <img src={segment3.photoUrl} alt={segment3.photoTitle ?? ''} className="h-36 rounded-lg object-cover w-full" />
+            )}
+            <p className="font-mono text-sm mt-3" style={{ color: '#4ade80' }}>● Showing on display screen</p>
+          </div>
+          <div>
+            <p className="font-mono text-sm uppercase tracking-widest mb-2" style={{ color: '#52525b' }}>Audience Vote</p>
+            <p className="font-mono text-sm" style={{ color: gameState.segment3.audienceVotingOpen ? '#4ade80' : '#52525b' }}>
+              {gameState.segment3.audienceVotingOpen ? '● Voting is live — use right panel to lock' : '○ Use right panel to open vote'}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl p-5 space-y-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+          {players.map((player) => {
+            const count = playerVoteCounts[player.id] ?? 0;
+            const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+            return (
+              <div key={player.id} className="flex items-center gap-4">
+                {player.photo && <img src={player.photo} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />}
+                <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ backgroundColor: '#27272a' }}>
+                  <div className="h-4 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: '#f59e0b' }} />
+                </div>
+                <span className="font-mono text-sm font-bold w-24 text-right shrink-0" style={{ color: '#e4e4e7' }}>{count} ({pct}%)</span>
+              </div>
+            );
+          })}
+          <p className="font-mono text-sm" style={{ color: '#52525b' }}>TOTAL VOTES: {totalVotes}</p>
+        </div>
+
+        {seg3Result && totalVotes > 0 && (
+          <div className="rounded-xl p-5 space-y-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+            {!seg3Result.isTie ? (
+              <p className="font-mono text-lg" style={{ color: '#fafafa' }}>
+                WINNER: <span style={{ color: '#f59e0b', fontWeight: 700 }}>{seg3Result.winners[0]?.name}</span>{' '}
+                <span style={{ color: '#52525b' }}>({seg3Result.maxCount} votes)</span>
+              </p>
+            ) : (
+              <div>
+                <p className="font-mono text-sm font-bold uppercase tracking-widest mb-4" style={{ color: '#fbbf24' }}>
+                  TIE DETECTED — Select winner manually:
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  {players.map((p) => (
+                    <button key={p.id} onClick={() => setSeg3ManualWinnerId(p.id)}
+                      className="p-4 rounded-xl font-mono text-base font-bold transition-all"
+                      style={{
+                        border: seg3ManualWinnerId === p.id ? '2px solid #f59e0b' : '1px solid #3f3f46',
+                        backgroundColor: seg3ManualWinnerId === p.id ? '#130f00' : '#18181b',
+                        color: seg3ManualWinnerId === p.id ? '#f59e0b' : '#a1a1aa',
+                      }}>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {effectiveWinnerId && !segment3.showResult && (
+              <button onClick={() => awardSeg3Points(effectiveWinnerId)}
+                className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+                style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+                AWARD 300 PTS TO {players.find((p) => p.id === effectiveWinnerId)?.name?.toUpperCase()}
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="pt-4" style={{ borderTop: '1px solid #27272a' }}>
+          <button onClick={() => db_update({ phase: 'FINAL', showLeaderboardModal: true })}
+            className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+            style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+            SHOW FINAL SCOREBOARD →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderFinal() {
+    const audienceUrl = `${origin}/audience`;
+    return (
+      <div className="grid grid-cols-2 gap-6">
+        <div className="space-y-4">
+          <p className="font-mono text-sm uppercase tracking-widest" style={{ color: '#52525b' }}>Display Controls</p>
+          <div className="flex gap-3 flex-wrap">
+            <button onClick={() => db_update({ showLeaderboardModal: true })}
+              className="px-5 py-3 rounded-lg font-mono text-sm font-bold transition-colors"
+              style={{ border: '1px solid #3f3f46', color: '#a1a1aa' }}>
+              SHOW FULL SCOREBOARD
+            </button>
+            <button onClick={() => db_update({ showLeaderboardModal: false })}
+              className="px-5 py-3 rounded-lg font-mono text-sm font-bold transition-colors"
+              style={{ border: '1px solid #3f3f46', color: '#a1a1aa' }}>
+              HIDE SCOREBOARD
+            </button>
+          </div>
+          <p className="font-mono text-xs" style={{ color: '#3f3f46' }}>Use the right panel to reset the game.</p>
+        </div>
+
+        {origin && (
+          <div className="rounded-xl p-5 text-center" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+            <p className="font-mono text-xs uppercase tracking-widest mb-3" style={{ color: '#52525b' }}>Audience Voting URL</p>
+            <p className="font-mono text-sm mb-4 break-all" style={{ color: '#f59e0b' }}>{audienceUrl}</p>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(audienceUrl)}&bgcolor=0d0d0f&color=f59e0b`}
+              alt="QR Code for audience"
+              className="mx-auto rounded-lg"
+              width={160} height={160}
+            />
+            <p className="font-mono text-sm mt-3" style={{ color: '#52525b' }}>Scan to access audience voting</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  if (!gameState) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#09090b' }}>
+        <div className="text-center">
+          <div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin mx-auto mb-3"
+            style={{ borderColor: '#f59e0b', borderTopColor: 'transparent' }} />
+          <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>Connecting to Firestore…</p>
+        </div>
+      </div>
+    );
+  }
+
+  const rawPhase = gameState.phase as string;
+  const isValidPhase = (PHASE_ORDER as string[]).includes(rawPhase);
+  const currentPhase: GameState['phase'] = isValidPhase ? rawPhase as GameState['phase'] : 'SETUP';
+  const currentPhaseIdx = PHASE_ORDER.indexOf(currentPhase);
+  const audienceUrl = `${origin}/audience`;
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: '#09090b', color: '#fafafa' }}>
+      {/* Sticky header */}
+      <div className="sticky top-0 z-20" style={{ backgroundColor: '#09090b', borderBottom: '1px solid #1f1f23' }}>
+        <div className="px-6 lg:px-10 py-3">
+          <div className="flex items-center justify-between gap-6">
+            <div className="shrink-0">
+              <h1 className="font-mono text-lg font-bold tracking-widest" style={{ color: '#f59e0b' }}>LIE HARD</h1>
+              <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#3f3f46' }}>OPERATOR PANEL</p>
+            </div>
+
+            {/* Phase stepper */}
+            <div className="flex items-center gap-0 overflow-x-auto flex-1 justify-center">
+              {PHASE_ORDER.map((phase, i) => {
+                const isPast = i < currentPhaseIdx;
+                const isCurrent = i === currentPhaseIdx;
+                return (
+                  <div key={phase} className="flex items-center">
+                    <span
+                      className="font-mono text-sm px-3 py-1 rounded transition-colors whitespace-nowrap"
+                      style={{
+                        backgroundColor: isCurrent ? '#f59e0b' : 'transparent',
+                        color: isCurrent ? '#09090b' : isPast ? '#4b5563' : '#27272a',
+                        fontWeight: isCurrent ? 700 : 400,
+                      }}
+                    >
+                      {isCurrent && '▶ '}{PHASE_LABELS[phase]}
+                    </span>
+                    {i < PHASE_ORDER.length - 1 && (
+                      <span className="font-mono text-sm mx-1" style={{ color: isPast ? '#374151' : '#1f1f23' }}>—</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Live scores */}
+            <div className="flex gap-2 shrink-0">
+              {gameState.players.map((p) => (
+                <div key={p.id} className="text-center px-4 py-2 rounded-lg" style={{ border: '1px solid #27272a', backgroundColor: '#111113' }}>
+                  <p className="font-mono text-xs leading-none mb-1" style={{ color: '#71717a' }}>{p.name}</p>
+                  <p className="font-mono text-xl font-bold leading-none" style={{ color: '#f59e0b' }}>{p.score}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Body: scrollable content + fixed right panel */}
+      <div className="flex">
+        <main className="flex-1 min-w-0 px-6 lg:px-10 py-6">
+          {/* Stale data warning */}
+          {!isValidPhase && (
+            <div className="mb-6 rounded-lg p-4" style={{ backgroundColor: '#1a1200', border: '1px solid #854d0e' }}>
+              <p className="font-mono text-sm font-bold mb-1" style={{ color: '#fbbf24' }}>OLD GAME DATA DETECTED</p>
+              <p className="font-mono text-sm mb-3" style={{ color: '#713f12' }}>Database has data from a previous version. Initialize to start fresh.</p>
+              <button onClick={() => setDoc(doc(db, 'gameState', 'live'), initialGameState)}
+                className="px-5 py-2.5 rounded font-mono text-sm font-bold transition-colors"
+                style={{ backgroundColor: '#1c0000', color: '#f87171', border: '1px solid #7f1d1d' }}>
+                INITIALIZE FRESH GAME STATE
+              </button>
+            </div>
+          )}
+
+          {/* Phase sections */}
+          <SectionCard id="SETUP" title="SETUP" currentPhase={currentPhase} render={renderSetup} />
+          <SectionCard id="WARMUP" title="WARMUP ROUND" currentPhase={currentPhase} render={renderWarmup} />
+          <SectionCard id="SEGMENT1" title="SEGMENT 1 — TRUTH OR LIE" currentPhase={currentPhase} render={renderSeg1} />
+          <SectionCard id="SEGMENT2" title="SEGMENT 2 — TWO STATEMENTS" currentPhase={currentPhase} render={renderSeg2} />
+          <SectionCard id="SEGMENT3" title="SEGMENT 3 — WHO OWNS IT?" currentPhase={currentPhase} render={renderSeg3} />
+          <SectionCard id="FINAL" title="FINAL" currentPhase={currentPhase} render={renderFinal} />
+
+          {/* Upcoming phases */}
+          {isValidPhase && PHASE_ORDER.slice(currentPhaseIdx + 1).map((phase) => (
+            <div key={phase} className="mb-2 px-5 py-3 rounded-lg flex items-center justify-between"
+              style={{ border: '1px solid #1f1f23', backgroundColor: '#0d0d0f' }}>
+              <span className="font-mono text-xs uppercase tracking-widest" style={{ color: '#27272a' }}>UPCOMING</span>
+              <span className="font-mono text-sm" style={{ color: '#27272a' }}>{PHASE_LABELS[phase]}</span>
+            </div>
+          ))}
+        </main>
+
+        {/* Fixed right panel */}
+        {renderRightPanel()}
+      </div>
+    </div>
+  );
+}
