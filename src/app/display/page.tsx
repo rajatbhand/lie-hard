@@ -106,16 +106,12 @@ function getVoteCounts(
 function VoteBars({
   counts,
   labels,
+  hideFooter,
 }: {
   counts: Record<string, number>;
   labels?: Record<string, string>;
+  hideFooter?: boolean;
 }) {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setReady(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const colorMap: Record<string, string> = {
     TRUTH:      '#4ade80',
@@ -126,19 +122,16 @@ function VoteBars({
 
   return (
     <div
-      className="w-full rounded-2xl"
+      className="w-full rounded-2xl p-6 gap-5"
       style={{
         backgroundColor: '#0d0d0f',
         border: '1px solid rgba(245,158,11,0.25)',
-        padding: 'clamp(12px, 1.67vw, 32px) clamp(16px, 2.08vw, 40px)',
         display: 'flex',
-        flexDirection: 'column',
-        gap: 'clamp(8px, 1.04vw, 20px)',
+        flexDirection: 'column'
       }}
     >
       {Object.entries(counts).map(([key, count]) => {
         const pct   = total > 0 ? Math.round((count / total) * 100) : 0;
-        const displayPct = ready ? pct : 0;
         const label = labels?.[key] ?? key;
         const color = colorMap[key] ?? '#71717a';
         return (
@@ -164,21 +157,23 @@ function VoteBars({
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
-                  width: `${displayPct}%`,
+                  width: `${pct}%`,
                   backgroundColor: color,
-                  minWidth: displayPct > 0 ? 'clamp(8px, 2.29vw, 44px)' : 0,
+                  minWidth: pct > 0 ? 'clamp(8px, 2.29vw, 44px)' : 0,
                 }}
               />
             </div>
           </div>
         );
       })}
-      <p
-        className="text-right font-mono"
-        style={{ color: '#3f3f46', fontSize: 'clamp(11px, 0.94vw, 18px)', paddingTop: '0.1vw' }}
-      >
-        {total} vote{total !== 1 ? 's' : ''}
-      </p>
+      {!hideFooter && (
+        <p
+          className="text-right font-display"
+          style={{ color: '#3f3f46', fontSize: 'clamp(11px, 0.94vw, 18px)', paddingTop: '0.1vw' }}
+        >
+          {total} vote{total !== 1 ? 's' : ''}
+        </p>
+      )}
     </div>
   );
 }
@@ -220,10 +215,6 @@ function StatementCard({
       style={{ border: `2px solid ${borderColor}`, backgroundColor: bgColor }}
     >
       {/* Left accent strip */}
-      <div
-        className="absolute left-0 top-0 bottom-0"
-        style={{ width: 'clamp(3px, 0.31vw, 6px)', backgroundColor: borderColor }}
-      />
       <div style={{ padding: 'clamp(12px, 2.08vw, 40px) clamp(16px, 2.92vw, 56px)', paddingLeft: 'clamp(18px, 3.33vw, 64px)' }}>
         {label && (
           <p
@@ -719,65 +710,114 @@ function Segment1Screen({ gameState }: { gameState: GameState }) {
     );
   }
 
+  const nonStorytellers1 = players.filter((p) => p.id !== segment1.currentStorytellerId);
+  const hasAnyVote1 = nonStorytellers1.some((p) => segment1.playerVotes[p.id]);
+
   if (segment1.showResult) {
     const isLie = stmtObj.isLie;
+    const resultColor = isLie ? '#f87171' : '#4ade80';
     return (
-      <div
-        className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
-        style={{ backgroundColor: isLie ? '#130404' : '#031208', gap: '1.04vw' }}
-      >
-        <ResultGlow color={isLie ? '#f87171' : '#4ade80'} />
-        <div className="flex items-center relative" style={{ gap: '1.25vw' }}>
-          <PlayerAvatar player={storyteller} vwSize={5.21} />
-          <p
-            className="font-display font-bold text-white"
-            style={{ fontSize: 'clamp(20px, 3.13vw, 60px)' }}
-          >
-            {storyteller.name}
-          </p>
-        </div>
-        <p
-          className="font-display font-black leading-none animate-reveal-pop relative"
-          style={{
-            fontSize: 'clamp(56px, 10.42vw, 200px)',
-            color: isLie ? '#f87171' : '#4ade80',
-            textShadow: `0 0 5.21vw ${isLie ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.4)'}`,
-          }}
-        >
-          {isLie ? 'LIE' : 'TRUTH'}
-        </p>
-        <div className="animate-slide-up relative" style={{ width: '46.9vw' }}>
-          <div
-            className="rounded-2xl text-center"
-            style={{
-              backgroundColor: 'rgba(245,158,11,0.05)',
-              border: '1px solid rgba(245,158,11,0.2)',
-              padding: 'clamp(10px, 1.04vw, 20px) clamp(14px, 2.5vw, 48px)',
-            }}
-          >
-            <p
-              className="font-display leading-snug"
-              style={{ color: isLie ? '#fca5a5' : '#86efac', fontSize: 'clamp(14px, 1.875vw, 36px)' }}
+      <div className="w-full h-full flex flex-col relative overflow-hidden" style={{ backgroundColor: isLie ? '#130404' : '#031208' }}>
+        <ResultGlow color={resultColor} />
+        {/* Row 1: player + LIE/TRUTH badge + statement */}
+        <div className="w-full p-6 relative" style={{ borderBottom: '1px solid rgba(245,158,11,0.12)' }}>
+          <div className="flex items-center" style={{ gap: '1.25vw', marginBottom: '0.83vw' }}>
+            <PlayerAvatar player={storyteller} vwSize={4.58} />
+            <div>
+              <p className="font-display font-bold text-white leading-none" style={{ fontSize: 'clamp(18px, 2.71vw, 52px)' }}>
+                {storyteller.name}
+              </p>
+              <p className="font-display tracking-wide" style={{ color: '#3f3f46', fontSize: 'clamp(12px, 1.25vw, 24px)', marginTop: '0.21vw' }}>
+                makes a statement
+              </p>
+            </div>
+            <span
+              className="font-display font-black uppercase animate-reveal-pop"
+              style={{
+                color: resultColor,
+                fontSize: 'clamp(28px, 4.17vw, 80px)',
+                textShadow: `0 0 3vw ${isLie ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.4)'}`,
+                marginLeft: 'auto',
+              }}
             >
-              &ldquo;{stmtObj.statement}&rdquo;
-            </p>
+              {isLie ? 'LIE' : 'TRUTH'}
+            </span>
           </div>
+          <StatementCard text={stmtObj.statement} highlight={isLie ? 'lie' : 'truth'} />
         </div>
-        {(gameState.showVoteBars ?? true) && (
-          <div style={{ width: '46.9vw' }}>
-            <VoteBars counts={counts} />
+
+        {/* Row 2: player votes + audience votes */}
+        <div className="flex min-h-0 w-full">
+          <div className='p-6' style={{ width: '30%' }}>
+            <p className="font-display uppercase text-2xl tracking-widest mb-2" style={{ color: '#52525b' }}>
+              Player Votes
+            </p>
+            <div
+              className="w-full rounded-2xl p-6 gap-6"
+              style={{
+                backgroundColor: '#0d0d0f',
+                border: '1px solid rgba(245,158,11,0.25)',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {nonStorytellers1.map((player) => {
+                const vote = segment1.playerVotes[player.id];
+                const voteColor = vote === 'TRUTH' ? '#4ade80' : vote === 'LIE' ? '#f87171' : '#3f3f46';
+                return (
+                  <div key={player.id} className="flex items-center gap-4">
+                    <img
+                      src={player.photo}
+                      alt={player.name}
+                      className="rounded-full object-cover shrink-0"
+                      style={{ width: '4.17vw', height: '4.17vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
+                    />
+                    <div>
+                      <p className="font-display font-bold text-white text-2xl leading-tight">{player.name}</p>
+                      <p className="font-display font-bold leading-tight text-3xl" style={{ color: voteColor }}>{vote ?? '—'}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        )}
+
+          {(gameState.showVoteBars ?? true) && (
+            <div className='p-6' style={{ width: '70%' }}>
+              <div className="flex items-baseline justify-between mb-2">
+                <p className="font-display uppercase tracking-widest text-2xl" style={{ color: '#52525b' }}>
+                  Audience Votes
+                </p>
+                <p className="font-display text-xl" style={{ color: '#3f3f46'}}>
+                  {Object.values(counts).reduce((a, b) => a + b, 0)} vote{Object.values(counts).reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <VoteBars counts={counts} hideFooter />
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  const nonStorytellers1 = players.filter((p) => p.id !== segment1.currentStorytellerId);
+  const waitingCard = (text: string) => (
+    <div
+      className="w-full rounded-2xl flex items-center justify-center p-6"
+      style={{
+        backgroundColor: '#0d0d0f',
+        border: '1px solid rgba(245,158,11,0.25)'
+      }}
+    >
+      <p className="font-display text-xl" style={{ color: '#3f3f46'}}>
+        {text}
+      </p>
+    </div>
+  );
 
   return (
-    <div className="w-full flex flex-col relative" style={{ backgroundColor: '#08080a' }}>
+    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden" style={{ backgroundColor: '#08080a' }}>
       {/* Row 1: current player + statement (left-aligned) */}
-      <div style={{ borderBottom: '1px solid rgba(245,158,11,0.12)', padding: '1.04vw 3.33vw 1.25vw' }}>
+      <div className="w-full p-6" style={{ borderBottom: '1px solid rgba(245,158,11,0.12)'}}>
         <div className="flex items-center" style={{ gap: '1.25vw', marginBottom: '0.83vw' }}>
           <PlayerAvatar player={storyteller} vwSize={4.58} />
           <div>
@@ -793,48 +833,61 @@ function Segment1Screen({ gameState }: { gameState: GameState }) {
       </div>
 
       {/* Row 2: player votes + audience votes */}
-      <div className="flex min-h-0">
-        <div className="flex-1" style={{ padding: '1.25vw 2.5vw', borderRight: '1px solid rgba(245,158,11,0.12)' }}>
-          <p className="font-mono uppercase tracking-widest" style={{ color: '#52525b', fontSize: 'clamp(10px, 1.04vw, 20px)', marginBottom: '1.04vw' }}>
+      <div className="flex min-h-0 w-full">
+        <div className='p-6' style={{ width: '30%'}}>
+          <p className="font-display uppercase text-2xl tracking-widest mb-2" style={{ color: '#52525b'}}>
             Player Votes
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.04vw' }}>
-            {nonStorytellers1.map((player) => {
-              const vote = segment1.playerVotes[player.id];
-              const voteColor = vote === 'TRUTH' ? '#4ade80' : vote === 'LIE' ? '#f87171' : '#3f3f46';
-              return (
-                <div key={player.id} className="flex items-center" style={{ gap: '1.04vw' }}>
-                  <img
-                    src={player.photo}
-                    alt={player.name}
-                    className="rounded-full object-cover shrink-0"
-                    style={{ width: '3.33vw', height: '3.33vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
-                  />
-                  <div>
-                    <p className="font-display font-bold text-white leading-tight" style={{ fontSize: 'clamp(14px, 1.56vw, 30px)' }}>
-                      {player.name}
-                    </p>
-                    <p className="font-display font-bold leading-tight" style={{ color: voteColor, fontSize: 'clamp(12px, 1.25vw, 24px)' }}>
-                      {vote ?? '—'}
-                    </p>
+          {hasAnyVote1 ? (
+            <div
+              className="w-full rounded-2xl p-6 gap-6"
+              style={{
+                backgroundColor: '#0d0d0f',
+                border: '1px solid rgba(245,158,11,0.25)',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {nonStorytellers1.map((player) => {
+                const vote = segment1.playerVotes[player.id];
+                const voteColor = vote === 'TRUTH' ? '#4ade80' : vote === 'LIE' ? '#f87171' : '#3f3f46';
+                return (
+                  <div key={player.id} className="flex items-center gap-4">
+                    <img
+                      src={player.photo}
+                      alt={player.name}
+                      className="rounded-full object-cover shrink-0"
+                      style={{ width: '4.17vw', height: '4.17vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
+                    />
+                    <div>
+                      <p className="font-display font-bold text-white text-2xl leading-tight">
+                        {player.name}
+                      </p>
+                      <p className="font-display font-bold leading-tight text-3xl" style={{ color: voteColor}}>
+                        {vote ?? '—'}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : waitingCard('Waiting for player votes...')}
         </div>
 
-        <div className="flex-1" style={{ padding: '1.25vw 2.5vw' }}>
-          <p className="font-mono uppercase tracking-widest" style={{ color: '#52525b', fontSize: 'clamp(10px, 1.04vw, 20px)', marginBottom: '1.04vw' }}>
-            Audience Votes
-          </p>
-          {segment1.audienceVotingOpen && (gameState.showVoteBars ?? true) ? (
-            <VoteBars counts={counts} />
-          ) : (
-            <p className="font-mono" style={{ color: '#3f3f46', fontSize: 'clamp(10px, 0.94vw, 18px)' }}>
-              Waiting for audience votes...
+        <div className='p-6' style={{ width: '70%'}}>
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="font-display uppercase tracking-widest text-2xl" style={{ color: '#52525b'}}>
+              Audience Votes
             </p>
-          )}
+            {segment1.audienceVotingOpen && (gameState.showVoteBars ?? true) && (
+              <p className="font-display text-xl" style={{ color: '#3f3f46'}}>
+                {Object.values(counts).reduce((a, b) => a + b, 0)} vote{Object.values(counts).reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}
+              </p>
+            )}
+          </div>
+          {segment1.audienceVotingOpen && (gameState.showVoteBars ?? true) ? (
+            <VoteBars counts={counts} hideFooter />
+          ) : waitingCard('Waiting for audience votes...')}
         </div>
       </div>
     </div>
@@ -846,7 +899,7 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
   const storyteller = players.find((p) => p.id === segment2.currentStorytellerId);
   const stmtObj     = segment2.statements.find((s) => s.playerId === segment2.currentStorytellerId);
   const counts      = getVoteCounts(gameState.audienceVotes, `seg2-${segment2.currentStorytellerId}`, ['STATEMENT1', 'STATEMENT2']);
-  const labels      = { STATEMENT1: 'Stmt 1 is Lie', STATEMENT2: 'Stmt 2 is Lie' };
+  const labels      = { STATEMENT1: 'Statement 1 is Lie', STATEMENT2: 'Statement 2 is Lie' };
 
   if (!storyteller || !stmtObj) {
     return (
@@ -856,61 +909,118 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
     );
   }
 
+  const nonStorytellers2 = players.filter((p) => p.id !== segment2.currentStorytellerId);
+  const hasAnyVote2 = nonStorytellers2.some((p) => segment2.playerVotes[p.id]);
+
   if (segment2.showResult) {
     const lieIsStmt1 = stmtObj.lieIndex === 1;
     return (
-      <div className="w-full h-full flex flex-col" style={{ backgroundColor: '#08080a' }}>
-        {/* Header */}
-        <div
-          className="flex items-center justify-center"
-          style={{ height: '22%', borderBottom: '1px solid rgba(245,158,11,0.12)', gap: '1.25vw', padding: '0 4.17vw' }}
-        >
-          <PlayerAvatar player={storyteller} vwSize={5.73} />
-          <p className="font-display font-bold text-white" style={{ fontSize: 'clamp(20px, 3.13vw, 60px)' }}>
-            {storyteller.name}
-          </p>
-          <span
-            className="font-display font-bold uppercase tracking-widest rounded-full"
-            style={{
-              color: '#f87171',
-              backgroundColor: 'rgba(248,113,113,0.1)',
-              border: '1px solid rgba(248,113,113,0.3)',
-              fontSize: 'clamp(11px, 1.04vw, 20px)',
-              padding: '0.42vw 1.04vw',
-              marginLeft: '0.83vw',
-            }}
-          >
-            Revealed
-          </span>
+      <div className="w-full h-full flex flex-col relative overflow-hidden" style={{ backgroundColor: '#08080a' }}>
+        {/* Row 1: player + statements highlighted */}
+        <div className="w-full p-6" style={{ borderBottom: '1px solid rgba(245,158,11,0.12)' }}>
+          <div className="flex items-center" style={{ gap: '1.67vw', marginBottom: '0.83vw' }}>
+            <PlayerAvatar player={storyteller} vwSize={5.21} />
+            <div>
+              <p className="font-display font-bold text-white leading-none" style={{ fontSize: 'clamp(18px, 2.71vw, 52px)' }}>
+                {storyteller.name}
+              </p>
+              <p className="font-display tracking-wide" style={{ color: '#3f3f46', fontSize: 'clamp(12px, 1.25vw, 24px)', marginTop: '0.21vw' }}>
+                makes two statements
+              </p>
+            </div>
+            <span
+              className="font-display font-bold uppercase tracking-widest rounded-full"
+              style={{
+                color: '#f87171',
+                backgroundColor: 'rgba(248,113,113,0.1)',
+                border: '1px solid rgba(248,113,113,0.3)',
+                fontSize: 'clamp(11px, 1.04vw, 20px)',
+                padding: '0.42vw 1.04vw',
+                marginLeft: 'auto',
+              }}
+            >
+              Revealed
+            </span>
+          </div>
+          <div className="flex" style={{ gap: '1.04vw' }}>
+            <StatementCard text={stmtObj.statement1} label={`Statement 1 — ${lieIsStmt1 ? 'LIE' : 'TRUTH'}`} highlight={lieIsStmt1 ? 'lie' : 'truth'} />
+            <StatementCard text={stmtObj.statement2} label={`Statement 2 — ${lieIsStmt1 ? 'TRUTH' : 'LIE'}`} highlight={lieIsStmt1 ? 'truth' : 'lie'} />
+          </div>
         </div>
 
-        {/* Two cards */}
-        <div className="flex flex-1 items-center" style={{ gap: '1.67vw', padding: '2vw 4.17vw' }}>
-          <StatementCard text={stmtObj.statement1} label="Statement 1" highlight={lieIsStmt1 ? 'lie' : 'truth'} />
-          <StatementCard text={stmtObj.statement2} label="Statement 2" highlight={lieIsStmt1 ? 'truth' : 'lie'} />
-        </div>
-
-        {/* Vote bars */}
-        {(gameState.showVoteBars ?? true) && (
-          <div
-            className="flex items-center justify-center"
-            style={{ height: '28%', borderTop: '1px solid rgba(245,158,11,0.12)', padding: '0 5vw' }}
-          >
-            <div className="w-full max-w-3xl">
-              <VoteBars counts={counts} labels={labels} />
+        {/* Row 2: player votes + audience votes */}
+        <div className="flex min-h-0 w-full">
+          <div className='p-6' style={{ width: '30%' }}>
+            <p className="font-display uppercase text-2xl tracking-widest mb-2" style={{ color: '#52525b' }}>
+              Player Votes
+            </p>
+            <div
+              className="w-full rounded-2xl p-6 gap-6"
+              style={{
+                backgroundColor: '#0d0d0f',
+                border: '1px solid rgba(245,158,11,0.25)',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {nonStorytellers2.map((player) => {
+                const vote = segment2.playerVotes[player.id];
+                const voteLabel = vote === 'STATEMENT1' ? 'Statement 1' : vote === 'STATEMENT2' ? 'Statement 2' : null;
+                const voteColor = vote === 'STATEMENT1' ? '#fbbf24' : vote === 'STATEMENT2' ? '#a78bfa' : '#3f3f46';
+                return (
+                  <div key={player.id} className="flex items-center gap-4">
+                    <img
+                      src={player.photo}
+                      alt={player.name}
+                      className="rounded-full object-cover shrink-0"
+                      style={{ width: '4.17vw', height: '4.17vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
+                    />
+                    <div>
+                      <p className="font-display font-bold text-white text-2xl leading-tight">{player.name}</p>
+                      <p className="font-display font-bold leading-tight text-3xl" style={{ color: voteColor }}>{voteLabel ?? '—'}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        )}
+
+          {(gameState.showVoteBars ?? true) && (
+            <div className='p-6' style={{ width: '70%' }}>
+              <div className="flex items-baseline justify-between mb-2">
+                <p className="font-display uppercase tracking-widest text-2xl" style={{ color: '#52525b' }}>
+                  Audience Votes
+                </p>
+                <p className="font-display text-xl" style={{ color: '#3f3f46'}}>
+                  {Object.values(counts).reduce((a, b) => a + b, 0)} vote{Object.values(counts).reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <VoteBars counts={counts} labels={labels} hideFooter />
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  const nonStorytellers2 = players.filter((p) => p.id !== segment2.currentStorytellerId);
+  const waitingCard2 = (text: string) => (
+    <div
+      className="w-full rounded-2xl flex items-center justify-center p-6"
+      style={{
+        backgroundColor: '#0d0d0f',
+        border: '1px solid rgba(245,158,11,0.25)',
+      }}
+    >
+      <p className="font-display text-xl" style={{ color: '#3f3f46' }}>
+        {text}
+      </p>
+    </div>
+  );
 
   return (
-    <div className="w-full flex flex-col relative" style={{ backgroundColor: '#08080a' }}>
+    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden" style={{ backgroundColor: '#08080a' }}>
       {/* Row 1: current player + statements (left-aligned) */}
-      <div style={{ borderBottom: '1px solid rgba(245,158,11,0.12)', padding: '1.04vw 2.5vw 1.25vw' }}>
+      <div className="w-full p-6" style={{ borderBottom: '1px solid rgba(245,158,11,0.12)' }}>
         <div className="flex items-center" style={{ gap: '1.67vw', marginBottom: '0.83vw' }}>
           <PlayerAvatar player={storyteller} vwSize={5.21} />
           <div>
@@ -929,49 +1039,62 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
       </div>
 
       {/* Row 2: player votes + audience votes */}
-      <div className="flex min-h-0">
-        <div className="flex-1" style={{ padding: '1.25vw 2.5vw', borderRight: '1px solid rgba(245,158,11,0.12)' }}>
-          <p className="font-mono uppercase tracking-widest" style={{ color: '#52525b', fontSize: 'clamp(10px, 1.04vw, 20px)', marginBottom: '1.04vw' }}>
+      <div className="flex min-h-0 w-full">
+        <div className='p-6' style={{ width: '30%' }}>
+          <p className="font-display uppercase text-2xl tracking-widest mb-2" style={{ color: '#52525b' }}>
             Player Votes
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.04vw' }}>
-            {nonStorytellers2.map((player) => {
-              const vote = segment2.playerVotes[player.id];
-              const voteLabel = vote === 'STATEMENT1' ? 'Stmt 1' : vote === 'STATEMENT2' ? 'Stmt 2' : null;
-              const voteColor = vote === 'STATEMENT1' ? '#fbbf24' : vote === 'STATEMENT2' ? '#a78bfa' : '#3f3f46';
-              return (
-                <div key={player.id} className="flex items-center" style={{ gap: '1.04vw' }}>
-                  <img
-                    src={player.photo}
-                    alt={player.name}
-                    className="rounded-full object-cover shrink-0"
-                    style={{ width: '3.33vw', height: '3.33vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
-                  />
-                  <div>
-                    <p className="font-display font-bold text-white leading-tight" style={{ fontSize: 'clamp(14px, 1.56vw, 30px)' }}>
-                      {player.name}
-                    </p>
-                    <p className="font-display font-bold leading-tight" style={{ color: voteColor, fontSize: 'clamp(12px, 1.25vw, 24px)' }}>
-                      {voteLabel ?? '—'}
-                    </p>
+          {hasAnyVote2 ? (
+            <div
+              className="w-full rounded-2xl p-6 gap-6"
+              style={{
+                backgroundColor: '#0d0d0f',
+                border: '1px solid rgba(245,158,11,0.25)',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {nonStorytellers2.map((player) => {
+                const vote = segment2.playerVotes[player.id];
+                const voteLabel = vote === 'STATEMENT1' ? 'Statement 1' : vote === 'STATEMENT2' ? 'Statement 2' : null;
+                const voteColor = vote === 'STATEMENT1' ? '#fbbf24' : vote === 'STATEMENT2' ? '#a78bfa' : '#3f3f46';
+                return (
+                  <div key={player.id} className="flex items-center gap-4">
+                    <img
+                      src={player.photo}
+                      alt={player.name}
+                      className="rounded-full object-cover shrink-0"
+                      style={{ width: '4.17vw', height: '4.17vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
+                    />
+                    <div>
+                      <p className="font-display font-bold text-white text-2xl leading-tight">
+                        {player.name}
+                      </p>
+                      <p className="font-display font-bold leading-tight text-3xl" style={{ color: voteColor }}>
+                        {voteLabel ?? '—'}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : waitingCard2('Waiting for player votes...')}
         </div>
 
-        <div className="flex-1" style={{ padding: '1.25vw 2.5vw' }}>
-          <p className="font-mono uppercase tracking-widest" style={{ color: '#52525b', fontSize: 'clamp(10px, 1.04vw, 20px)', marginBottom: '1.04vw' }}>
-            Audience Votes
-          </p>
-          {segment2.audienceVotingOpen && (gameState.showVoteBars ?? true) ? (
-            <VoteBars counts={counts} labels={labels} />
-          ) : (
-            <p className="font-mono" style={{ color: '#3f3f46', fontSize: 'clamp(10px, 0.94vw, 18px)' }}>
-              Waiting for audience votes...
+        <div className='p-6' style={{ width: '70%' }}>
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="font-display uppercase tracking-widest text-2xl" style={{ color: '#52525b' }}>
+              Audience Votes
             </p>
-          )}
+            {segment2.audienceVotingOpen && (gameState.showVoteBars ?? true) && (
+              <p className="font-display" style={{ color: '#3f3f46', fontSize: 'clamp(11px, 0.94vw, 18px)' }}>
+                {Object.values(counts).reduce((a, b) => a + b, 0)} vote{Object.values(counts).reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}
+              </p>
+            )}
+          </div>
+          {segment2.audienceVotingOpen && (gameState.showVoteBars ?? true) ? (
+            <VoteBars counts={counts} labels={labels} hideFooter />
+          ) : waitingCard2('Waiting for audience votes...')}
         </div>
       </div>
     </div>
@@ -1174,7 +1297,7 @@ export default function DisplayPage() {
 
   const { phase, players, showScoreboard, showLeaderboardModal, showTopVoters, showScorePopup, scorePopupDeltas, voterScores } = gameState;
 
-  function MainContent() {
+  const mainContent = (() => {
     switch (phase) {
       case 'SETUP':    return <SetupScreen />;
       case 'WARMUP':   return <WarmupScreen gameState={gameState!} />;
@@ -1207,7 +1330,7 @@ export default function DisplayPage() {
         );
       default: return <SetupScreen />;
     }
-  }
+  })();
 
   const isTimerRunning = gameState.banterTimer?.running && timerDisplay > 0;
   const timerMins  = Math.floor(timerDisplay / 60);
@@ -1256,21 +1379,8 @@ export default function DisplayPage() {
         </div>
 
         <div>
-          {showScoreboard ? (
+          {showScoreboard && (
             <Scoreboard players={players} highlightedIds={highlightedIds} />
-          ) : (
-            <div
-              className="rounded-full"
-              style={{
-                backgroundColor: '#08080a',
-                border: '1px solid rgba(245,158,11,0.25)',
-                padding: '0.52vw 1.25vw',
-              }}
-            >
-              <span className="font-mono uppercase tracking-widest" style={{ color: '#52525b', fontSize: 'clamp(10px, 0.73vw, 14px)' }}>
-                Scoreboard Hidden
-              </span>
-            </div>
           )}
         </div>
 
@@ -1305,7 +1415,7 @@ export default function DisplayPage() {
 
       {/* Main content */}
       <div className="w-full flex-1 min-h-0 relative">
-        <MainContent />
+        {mainContent}
       </div>
 
       {/* Banter timer — bottom-center */}
