@@ -13,10 +13,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      {/* Remove default font classes to allow globals.css to take priority */}
-      <body>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

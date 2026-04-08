@@ -41,6 +41,7 @@ interface GameState {
   showLeaderboardModal: boolean;
   showTopVoters: boolean;
   showScorePopup: boolean;
+  showVoteBars: boolean;
   scorePopupDeltas: { name: string; delta: number }[];
   banterTimer: {
     totalSeconds: number;
@@ -99,6 +100,7 @@ const initialGameState: GameState = {
   showLeaderboardModal: false,
   showTopVoters: false,
   showScorePopup: false,
+  showVoteBars: true,
   scorePopupDeltas: [],
   banterTimer: { totalSeconds: 60, startedAt: null, running: false },
   warmup: { statements: [], currentIndex: 0, audienceVotingOpen: false, showResult: false },
@@ -788,6 +790,11 @@ export default function OperatorPage() {
               () => db_update({ showScorePopup: !gameState.showScorePopup }),
               { border: '1px solid #27272a', backgroundColor: 'transparent', color: gameState.showScorePopup ? '#4ade80' : '#52525b' },
               (gameState.scorePopupDeltas ?? []).length === 0,
+            )}
+            {panelBtn(
+              (gameState.showVoteBars ?? true) ? '● Vote Bars ON' : '○ Vote Bars OFF',
+              () => db_update({ showVoteBars: !(gameState.showVoteBars ?? true) }),
+              { border: '1px solid #27272a', backgroundColor: 'transparent', color: (gameState.showVoteBars ?? true) ? '#4ade80' : '#52525b' },
             )}
           </div>
 
