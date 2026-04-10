@@ -41,6 +41,7 @@ interface GameState {
   showTopVoters: boolean;
   showScorePopup: boolean;
   showVoteBars: boolean;
+  showLogo?: boolean;
   scorePopupDeltas: { name: string; delta: number }[];
   voterScores: { [uid: string]: { name: string; correctCount: number } };
   banterTimer: {
@@ -184,10 +185,12 @@ function StatementCard({
   text,
   label,
   highlight,
+  large,
 }: {
   text: string;
   label?: string;
   highlight?: 'truth' | 'lie' | null;
+  large?: boolean;
 }) {
   const borderColor =
     highlight === 'truth' ? '#4ade80' :
@@ -226,7 +229,7 @@ function StatementCard({
         )}
         <p
           className="font-display leading-tight"
-          style={{ fontSize: 'clamp(18px, 2.71vw, 52px)', color: textColor }}
+          style={{ fontSize: large ? 'clamp(24px, 3.64vw, 70px)' : 'clamp(18px, 2.71vw, 52px)', color: textColor }}
         >
           {text}
         </p>
@@ -301,7 +304,7 @@ function Scoreboard({
           className="font-display font-bold uppercase tracking-widest"
           style={{ color: '#f59e0b', fontSize: 'clamp(11px, 1.04vw, 20px)' }}
         >
-          Kiwi Points
+          Points
         </p>
       </div>
 
@@ -716,85 +719,74 @@ function Segment1Screen({ gameState }: { gameState: GameState }) {
   if (segment1.showResult) {
     const isLie = stmtObj.isLie;
     const resultColor = isLie ? '#f87171' : '#4ade80';
+    const totalVotes1 = Object.values(counts).reduce((a, b) => a + b, 0);
     return (
-      <div className="w-full h-full flex flex-col relative overflow-hidden" style={{ backgroundColor: isLie ? '#130404' : '#031208' }}>
+      <div className="w-full h-full flex flex-col overflow-hidden relative" style={{ backgroundColor: isLie ? '#0f0202' : '#020f04' }}>
         <ResultGlow color={resultColor} />
-        {/* Row 1: player + LIE/TRUTH badge + statement */}
-        <div className="w-full p-6 relative" style={{ borderBottom: '1px solid rgba(245,158,11,0.12)' }}>
-          <div className="flex items-center" style={{ gap: '1.25vw', marginBottom: '0.83vw' }}>
-            <PlayerAvatar player={storyteller} vwSize={4.58} />
-            <div>
-              <p className="font-display font-bold text-white leading-none" style={{ fontSize: 'clamp(18px, 2.71vw, 52px)' }}>
-                {storyteller.name}
-              </p>
-              <p className="font-display tracking-wide" style={{ color: '#3f3f46', fontSize: 'clamp(12px, 1.25vw, 24px)', marginTop: '0.21vw' }}>
-                makes a statement
-              </p>
-            </div>
-            <span
-              className="font-display font-black uppercase animate-reveal-pop"
-              style={{
-                color: resultColor,
-                fontSize: 'clamp(28px, 4.17vw, 80px)',
-                textShadow: `0 0 3vw ${isLie ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.4)'}`,
-                marginLeft: 'auto',
-              }}
-            >
-              {isLie ? 'LIE' : 'TRUTH'}
-            </span>
-          </div>
-          <StatementCard text={stmtObj.statement} highlight={isLie ? 'lie' : 'truth'} />
+
+        {/* Row 1: TRUTH / LIE word */}
+        <div className="flex items-center justify-center shrink-0 relative" style={{ padding: '2vw 5vw 1vw' }}>
+          <p
+            className="font-display font-black uppercase animate-reveal-pop leading-none"
+            style={{
+              color: resultColor,
+              fontSize: 'clamp(60px, 11vw, 180px)',
+              textShadow: `0 0 5vw ${isLie ? 'rgba(248,113,113,0.5)' : 'rgba(74,222,128,0.5)'}`,
+            }}
+          >
+            {isLie ? 'LIE' : 'TRUTH'}
+          </p>
         </div>
 
-        {/* Row 2: player votes + audience votes */}
-        <div className="flex min-h-0 w-full">
-          <div className='p-6' style={{ width: '30%' }}>
-            <p className="font-display uppercase text-2xl tracking-widest mb-2" style={{ color: '#52525b' }}>
+        {/* Row 2: Player photo + statement */}
+        <div className="flex-1 min-h-0 flex items-center relative" style={{ padding: '0 5vw 1.5vw', gap: '2vw' }}>
+          <div className="flex-1 min-w-0 flex flex-col" style={{ gap: '0.75vw' }}>
+            <div className='flex items-center'>
+              <PlayerAvatar player={storyteller} vwSize={4} />
+              <p className="font-display font-bold text-white leading-none ml-4" style={{ fontSize: 'clamp(16px, 2vw, 40px)' }}>
+                {storyteller.name}
+              </p>
+            </div>
+            <StatementCard text={stmtObj.statement} highlight={isLie ? 'lie' : 'truth'} large />
+          </div>
+        </div>
+
+        {/* Row 3: Audience votes + Player votes side by side, no scroll */}
+        <div className="flex w-full shrink-0 overflow-hidden" style={{ borderTop: '1px solid rgba(245,158,11,0.12)', padding: '1.5vw 2vw', gap: '2vw' }}>
+          {(gameState.showVoteBars ?? true) && (
+            <div style={{ width: '60%' }}>
+              <div className="flex items-baseline justify-between mb-2">
+                <p className="font-display uppercase tracking-widest" style={{ color: '#52525b', fontSize: 'clamp(11px, 1.04vw, 20px)' }}>
+                  Audience Votes
+                </p>
+                <p className="font-display" style={{ color: '#3f3f46', fontSize: 'clamp(11px, 0.94vw, 18px)' }}>
+                  {totalVotes1} vote{totalVotes1 !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <VoteBars counts={counts} hideFooter />
+            </div>
+          )}
+          <div style={{ width: (gameState.showVoteBars ?? true) ? '40%' : '100%' }}>
+            <p className="font-display uppercase tracking-widest mb-2" style={{ color: '#52525b', fontSize: 'clamp(11px, 1.04vw, 20px)' }}>
               Player Votes
             </p>
-            <div
-              className="w-full rounded-2xl p-6 gap-6"
-              style={{
-                backgroundColor: '#0d0d0f',
-                border: '1px solid rgba(245,158,11,0.25)',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
+            <div className="w-full rounded-2xl p-3 flex flex-col flex-wrap gap-3 overflow-hidden" style={{ backgroundColor: '#0d0d0f', border: '1px solid rgba(245,158,11,0.2)' }}>
               {nonStorytellers1.map((player) => {
                 const vote = segment1.playerVotes[player.id];
                 const voteColor = vote === 'TRUTH' ? '#4ade80' : vote === 'LIE' ? '#f87171' : '#3f3f46';
                 return (
-                  <div key={player.id} className="flex items-center gap-4">
-                    <img
-                      src={player.photo}
-                      alt={player.name}
-                      className="rounded-full object-cover shrink-0"
-                      style={{ width: '4.17vw', height: '4.17vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
-                    />
-                    <div>
-                      <p className="font-display font-bold text-white text-2xl leading-tight">{player.name}</p>
-                      <p className="font-display font-bold leading-tight text-3xl" style={{ color: voteColor }}>{vote ?? '—'}</p>
+                  <div key={player.id} className="flex items-center gap-2">
+                    <img src={player.photo} alt={player.name} className="rounded-full object-cover shrink-0"
+                      style={{ width: '2.5vw', height: '2.5vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }} />
+                    <div className='flex items-center justify-between w-full'>
+                      <p className="font-display font-bold text-white leading-tight" style={{ fontSize: 'clamp(10px, 1vw, 20px)' }}>{player.name}</p>
+                      <p className="font-display font-bold leading-tight" style={{ color: voteColor, fontSize: 'clamp(12px, 1.25vw, 24px)' }}>{vote ?? '—'}</p>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-
-          {(gameState.showVoteBars ?? true) && (
-            <div className='p-6' style={{ width: '70%' }}>
-              <div className="flex items-baseline justify-between mb-2">
-                <p className="font-display uppercase tracking-widest text-2xl" style={{ color: '#52525b' }}>
-                  Audience Votes
-                </p>
-                <p className="font-display text-xl" style={{ color: '#3f3f46'}}>
-                  {Object.values(counts).reduce((a, b) => a + b, 0)} vote{Object.values(counts).reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}
-                </p>
-              </div>
-              <VoteBars counts={counts} hideFooter />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -914,90 +906,75 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
 
   if (segment2.showResult) {
     const lieIsStmt1 = stmtObj.lieIndex === 1;
+    const totalVotes2 = Object.values(counts).reduce((a, b) => a + b, 0);
     return (
-      <div className="w-full h-full flex flex-col relative overflow-hidden" style={{ backgroundColor: '#08080a' }}>
-        {/* Row 1: player + statements highlighted */}
-        <div className="w-full p-6" style={{ borderBottom: '1px solid rgba(245,158,11,0.12)' }}>
-          <div className="flex items-center" style={{ gap: '1.67vw', marginBottom: '0.83vw' }}>
-            <PlayerAvatar player={storyteller} vwSize={5.21} />
-            <div>
-              <p className="font-display font-bold text-white leading-none" style={{ fontSize: 'clamp(18px, 2.71vw, 52px)' }}>
-                {storyteller.name}
-              </p>
-              <p className="font-display tracking-wide" style={{ color: '#3f3f46', fontSize: 'clamp(12px, 1.25vw, 24px)', marginTop: '0.21vw' }}>
-                makes two statements
-              </p>
-            </div>
-            <span
-              className="font-display font-bold uppercase tracking-widest rounded-full"
-              style={{
-                color: '#f87171',
-                backgroundColor: 'rgba(248,113,113,0.1)',
-                border: '1px solid rgba(248,113,113,0.3)',
-                fontSize: 'clamp(11px, 1.04vw, 20px)',
-                padding: '0.42vw 1.04vw',
-                marginLeft: 'auto',
-              }}
-            >
-              Revealed
-            </span>
+      <div className="w-full h-full flex flex-col overflow-hidden relative" style={{ backgroundColor: '#0f0202' }}>
+        <ResultGlow color="#f87171" />
+
+        {/* Row 1 (primary): Player photo + name + reveal */}
+        <div className="flex-1 min-h-0 flex items-center justify-between relative" style={{ padding: '2vw 5vw 1vw', gap: '1vw' }}>
+          <div className='flex items-center justify-between'>
+            <PlayerAvatar player={storyteller} vwSize={5} />
+            <p className="font-display font-bold text-white leading-none ml-4" style={{ fontSize: 'clamp(16px, 2.5vw, 48px)' }}>
+              {storyteller.name}
+            </p>
           </div>
-          <div className="flex" style={{ gap: '1.04vw' }}>
-            <StatementCard text={stmtObj.statement1} label={`Statement 1 — ${lieIsStmt1 ? 'LIE' : 'TRUTH'}`} highlight={lieIsStmt1 ? 'lie' : 'truth'} />
-            <StatementCard text={stmtObj.statement2} label={`Statement 2 — ${lieIsStmt1 ? 'TRUTH' : 'LIE'}`} highlight={lieIsStmt1 ? 'truth' : 'lie'} />
-          </div>
+          
+          <p
+            className="font-display font-black uppercase animate-reveal-pop leading-tight text-center"
+            style={{
+              color: '#f87171',
+              fontSize: 'clamp(36px, 7vw, 130px)',
+              textShadow: '0 0 5vw rgba(248,113,113,0.5)',
+            }}
+          >
+            {lieIsStmt1 ? 'Statement 1' : 'Statement 2'} is the Lie
+          </p>
         </div>
 
-        {/* Row 2: player votes + audience votes */}
-        <div className="flex min-h-0 w-full">
-          <div className='p-6' style={{ width: '30%' }}>
-            <p className="font-display uppercase text-2xl tracking-widest mb-2" style={{ color: '#52525b' }}>
+        {/* Row 2 (tertiary): Two statement cards side by side, small */}
+        <div className="flex shrink-0 w-full" style={{ padding: '0 5vw 1.5vw', gap: '1vw' }}>
+          <StatementCard text={stmtObj.statement1} label="Statement 1" highlight={lieIsStmt1 ? 'lie' : 'truth'} />
+          <StatementCard text={stmtObj.statement2} label="Statement 2" highlight={lieIsStmt1 ? 'truth' : 'lie'} />
+        </div>
+
+        {/* Row 3: Audience votes + Player votes side by side, no scroll */}
+        <div className="flex w-full shrink-0 overflow-hidden" style={{ borderTop: '1px solid rgba(245,158,11,0.12)', padding: '1.5vw 2vw', gap: '2vw' }}>
+          {(gameState.showVoteBars ?? true) && (
+            <div style={{ width: '60%' }}>
+              <div className="flex items-baseline justify-between mb-2">
+                <p className="font-display uppercase tracking-widest" style={{ color: '#52525b', fontSize: 'clamp(11px, 1.04vw, 20px)' }}>
+                  Audience Votes
+                </p>
+                <p className="font-display" style={{ color: '#3f3f46', fontSize: 'clamp(11px, 0.94vw, 18px)' }}>
+                  {totalVotes2} vote{totalVotes2 !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <VoteBars counts={counts} labels={labels} hideFooter />
+            </div>
+          )}
+          <div style={{ width: (gameState.showVoteBars ?? true) ? '40%' : '100%' }}>
+            <p className="font-display uppercase tracking-widest mb-2" style={{ color: '#52525b', fontSize: 'clamp(11px, 1.04vw, 20px)' }}>
               Player Votes
             </p>
-            <div
-              className="w-full rounded-2xl p-6 gap-6"
-              style={{
-                backgroundColor: '#0d0d0f',
-                border: '1px solid rgba(245,158,11,0.25)',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
+            <div className="w-full rounded-2xl p-3 flex flex-col gap-3 overflow-hidden" style={{ backgroundColor: '#0d0d0f', border: '1px solid rgba(245,158,11,0.2)' }}>
               {nonStorytellers2.map((player) => {
                 const vote = segment2.playerVotes[player.id];
-                const voteLabel = vote === 'STATEMENT1' ? 'Statement 1' : vote === 'STATEMENT2' ? 'Statement 2' : null;
+                const voteLabel = vote === 'STATEMENT1' ? 'Stmt 1' : vote === 'STATEMENT2' ? 'Stmt 2' : null;
                 const voteColor = vote === 'STATEMENT1' ? '#fbbf24' : vote === 'STATEMENT2' ? '#a78bfa' : '#3f3f46';
                 return (
-                  <div key={player.id} className="flex items-center gap-4">
-                    <img
-                      src={player.photo}
-                      alt={player.name}
-                      className="rounded-full object-cover shrink-0"
-                      style={{ width: '4.17vw', height: '4.17vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }}
-                    />
-                    <div>
-                      <p className="font-display font-bold text-white text-2xl leading-tight">{player.name}</p>
-                      <p className="font-display font-bold leading-tight text-3xl" style={{ color: voteColor }}>{voteLabel ?? '—'}</p>
+                  <div key={player.id} className="flex items-center gap-2">
+                    <img src={player.photo} alt={player.name} className="rounded-full object-cover shrink-0"
+                      style={{ width: '2.5vw', height: '2.5vw', border: `2px solid ${vote ? voteColor : 'rgba(245,158,11,0.2)'}` }} />
+                    <div className='flex justify-between items-center w-full'>
+                      <p className="font-display font-bold text-white leading-tight" style={{ fontSize: 'clamp(10px, 1vw, 20px)' }}>{player.name}</p>
+                      <p className="font-display font-bold leading-tight" style={{ color: voteColor, fontSize: 'clamp(12px, 1.25vw, 24px)' }}>{voteLabel ?? '—'}</p>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-
-          {(gameState.showVoteBars ?? true) && (
-            <div className='p-6' style={{ width: '70%' }}>
-              <div className="flex items-baseline justify-between mb-2">
-                <p className="font-display uppercase tracking-widest text-2xl" style={{ color: '#52525b' }}>
-                  Audience Votes
-                </p>
-                <p className="font-display text-xl" style={{ color: '#3f3f46'}}>
-                  {Object.values(counts).reduce((a, b) => a + b, 0)} vote{Object.values(counts).reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}
-                </p>
-              </div>
-              <VoteBars counts={counts} labels={labels} hideFooter />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1146,7 +1123,7 @@ function Segment3Screen({ gameState }: { gameState: GameState }) {
           className="font-display font-black relative"
           style={{ fontSize: 'clamp(24px, 3.75vw, 72px)', color: '#f59e0b', textShadow: '0 0 2.08vw rgba(245,158,11,0.4)' }}
         >
-          +{kpDisplay} KIWI POINTS
+          +{kpDisplay} POINTS
         </p>
       </div>
     );
@@ -1332,6 +1309,9 @@ export default function DisplayPage() {
     }
   })();
 
+  const hideTopBar = (phase === 'SEGMENT1' && gameState.segment1.showResult) ||
+                     (phase === 'SEGMENT2' && gameState.segment2.showResult);
+
   const isTimerRunning = gameState.banterTimer?.running && timerDisplay > 0;
   const timerMins  = Math.floor(timerDisplay / 60);
   const timerSecs  = String(timerDisplay % 60).padStart(2, '0');
@@ -1364,7 +1344,7 @@ export default function DisplayPage() {
       style={{ width: '100vw', height: '100vh', backgroundColor: '#08080a', overflow: 'hidden' }}
     >
       {/* Top section: round + scoreboard + voting status */}
-      <div
+      {!hideTopBar && (<div
         className="z-30 flex items-center justify-between"
         style={{ padding: '0.83vw 1.25vw 0.73vw', borderBottom: '1px solid rgba(245,158,11,0.12)' }}
       >
@@ -1411,7 +1391,7 @@ export default function DisplayPage() {
             {votingStatus === 'open' ? 'Voting Open' : votingStatus === 'closed' ? 'Voting Closed' : 'Voting Locked'}
           </span>
         </div>
-      </div>
+      </div>)}
 
       {/* Main content */}
       <div className="w-full flex-1 min-h-0 relative">
@@ -1497,6 +1477,20 @@ export default function DisplayPage() {
 
       {/* Leaderboard modal */}
       {showLeaderboardModal && <LeaderboardModal players={players} />}
+
+      {/* Show Logo overlay — above all other overlays */}
+      {(gameState.showLogo ?? false) && (
+        <div
+          className="absolute inset-0 z-[60] flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.95)' }}
+        >
+          <img
+            src="/logo.svg"
+            alt="Lie Hard"
+            style={{ maxWidth: '60vw', maxHeight: '60vh', objectFit: 'contain' }}
+          />
+        </div>
+      )}
     </div>
   );
 }

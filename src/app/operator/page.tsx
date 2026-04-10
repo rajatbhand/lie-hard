@@ -42,6 +42,7 @@ interface GameState {
   showTopVoters: boolean;
   showScorePopup: boolean;
   showVoteBars: boolean;
+  showLogo?: boolean;
   scorePopupDeltas: { name: string; delta: number }[];
   banterTimer: {
     totalSeconds: number;
@@ -101,6 +102,7 @@ const initialGameState: GameState = {
   showTopVoters: false,
   showScorePopup: false,
   showVoteBars: true,
+  showLogo: false,
   scorePopupDeltas: [],
   banterTimer: { totalSeconds: 60, startedAt: null, running: false },
   warmup: { statements: [], currentIndex: 0, audienceVotingOpen: false, showResult: false },
@@ -447,6 +449,47 @@ export default function OperatorPage() {
     setSeg3Photo(gs.segment3.photoUrl ?? '');
   }
 
+  // ── CSV Export ─────────────────────────────────────────────────────────────
+
+  function downloadCsv() {
+    if (!gameState) return;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `lie-hard-session-${timestamp}.csv`;
+    const rows: string[][] = [];
+
+    rows.push(['PLAYER SCORES']);
+    rows.push(['rank', 'name', 'score']);
+    [...gameState.players]
+      .sort((a, b) => b.score - a.score)
+      .forEach((p, i) => rows.push([String(i + 1), p.name, String(p.score)]));
+
+    rows.push([]);
+
+    rows.push(['AUDIENCE VOTER SCORES']);
+    rows.push(['name', 'correctVotes']);
+    Object.values(gameState.voterScores ?? {})
+      .sort((a, b) => b.correctCount - a.correctCount)
+      .forEach((v) => rows.push([v.name, String(v.correctCount)]));
+
+    rows.push([]);
+
+    rows.push(['RAW AUDIENCE VOTES']);
+    rows.push(['uid', 'displayName', 'choice', 'votingRound']);
+    Object.entries(gameState.audienceVotes ?? {}).forEach(([uid, v]) =>
+      rows.push([uid, v.displayName ?? '', v.choice, v.votingRound])
+    );
+
+    const csv = Papa.unparse(rows);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  }
+
   // ── Setup: validate & start ────────────────────────────────────────────────
 
   function validateAndStart() {
@@ -717,6 +760,8 @@ export default function OperatorPage() {
       }
     })();
 
+    const logoEnabled = gameState.showLogo ?? false;
+
     const panelBtn = (label: string, onClick: () => void, style: React.CSSProperties, disabled = false) => (
       <button
         onClick={onClick}
@@ -739,6 +784,21 @@ export default function OperatorPage() {
         }}
       >
         <div className="p-4 space-y-6">
+
+          {/* Live vote count */}
+          <div
+            className="rounded-lg px-4 py-3 text-center"
+            style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}
+          >
+            <p className="font-mono text-xs uppercase tracking-widest mb-1" style={{ color: '#52525b' }}>
+              Total Votes
+            </p>
+            <p className="font-display font-black text-3xl" style={{ color: '#f59e0b' }}>
+              {Object.keys(gameState.audienceVotes ?? {}).length}
+            </p>
+          </div>
+
+          <div style={{ borderTop: '1px solid #27272a' }} />
 
           {/* Audience Vote */}
           {voteCtx ? (
@@ -796,6 +856,11 @@ export default function OperatorPage() {
               () => db_update({ showVoteBars: !(gameState.showVoteBars ?? true) }),
               { border: '1px solid #27272a', backgroundColor: 'transparent', color: (gameState.showVoteBars ?? true) ? '#4ade80' : '#52525b' },
             )}
+            {panelBtn(
+              logoEnabled ? '● Logo ON' : '○ Logo OFF',
+              () => db_update({ showLogo: !logoEnabled }),
+              { border: '1px solid #27272a', backgroundColor: 'transparent', color: logoEnabled ? '#4ade80' : '#52525b' },
+            )}
           </div>
 
           <div style={{ borderTop: '1px solid #27272a' }} />
@@ -832,12 +897,29 @@ export default function OperatorPage() {
 
           <div style={{ borderTop: '1px solid #27272a' }} />
 
+          {/* Data export */}
+          <div className="space-y-2">
+            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>DATA</p>
+            {panelBtn(
+              '↓ DOWNLOAD CSV',
+              downloadCsv,
+              { backgroundColor: '#0d0d0f', color: '#a1a1aa', border: '1px solid #3f3f46' },
+            )}
+          </div>
+
+          <div style={{ borderTop: '1px solid #27272a' }} />
+
           {/* Reset */}
           <div className="space-y-2">
             <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>DANGER</p>
             {panelBtn(
               'RESET GAME',
-              () => { if (confirm('Reset the entire game? This cannot be undone.')) setDoc(doc(db, 'gameState', 'live'), initialGameState); },
+              () => {
+                if (confirm('Reset the entire game? This cannot be undone.')) {
+                  downloadCsv();
+                  setDoc(doc(db, 'gameState', 'live'), initialGameState);
+                }
+              },
               { backgroundColor: '#1c0000', color: '#f87171', border: '1px solid #7f1d1d' },
             )}
           </div>
