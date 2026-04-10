@@ -40,4 +40,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 LIAR_HEARTS_PRD.md
-.firebase/hosting.b3V0.cache
+.firebase/
