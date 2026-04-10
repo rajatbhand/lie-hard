@@ -28,9 +28,8 @@ interface Segment1Statement {
 interface Segment2Statement {
   playerId: number;
   playerName: string;
-  statement1: string;
-  statement2: string;
-  lieIndex: 1 | 2;
+  statements: string[];
+  lieIndex: number; // 0-based index of the lie statement
 }
 
 interface GameState {
@@ -66,7 +65,7 @@ interface GameState {
   segment2: {
     statements: Segment2Statement[];
     currentStorytellerId: number | null;
-    playerVotes: { [playerId: number]: 'STATEMENT1' | 'STATEMENT2' | null };
+    playerVotes: { [playerId: number]: string | null };
     audienceVotingOpen: boolean;
     showResult: boolean;
     completedStorytellers: number[];
@@ -114,12 +113,11 @@ function VoteBars({
   hideFooter?: boolean;
 }) {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const colorMap: Record<string, string> = {
-    TRUTH:      '#4ade80',
-    LIE:        '#f87171',
-    STATEMENT1: '#fbbf24',
-    STATEMENT2: '#a78bfa',
-  };
+  const STATEMENT_PALETTE = ['#fbbf24', '#a78bfa', '#34d399', '#60a5fa', '#f472b6'];
+  const colorMap: Record<string, string> = { TRUTH: '#4ade80', LIE: '#f87171' };
+  Object.keys(counts).forEach((key, i) => {
+    if (key.startsWith('STATEMENT_')) colorMap[key] = STATEMENT_PALETTE[i % STATEMENT_PALETTE.length];
+  });
 
   return (
     <div
@@ -890,8 +888,9 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
   const { segment2, players } = gameState;
   const storyteller = players.find((p) => p.id === segment2.currentStorytellerId);
   const stmtObj     = segment2.statements.find((s) => s.playerId === segment2.currentStorytellerId);
-  const counts      = getVoteCounts(gameState.audienceVotes, `seg2-${segment2.currentStorytellerId}`, ['STATEMENT1', 'STATEMENT2']);
-  const labels      = { STATEMENT1: 'Statement 1 is Lie', STATEMENT2: 'Statement 2 is Lie' };
+  const voteOptions = stmtObj ? stmtObj.statements.map((_, i) => `STATEMENT_${i}`) : ['STATEMENT_0', 'STATEMENT_1'];
+  const counts      = getVoteCounts(gameState.audienceVotes, `seg2-${segment2.currentStorytellerId}`, voteOptions);
+  const labels      = Object.fromEntries(voteOptions.map((v, i) => [v, `Statement ${i + 1} is Lie`]));
 
   if (!storyteller || !stmtObj) {
     return (
@@ -905,7 +904,7 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
   const hasAnyVote2 = nonStorytellers2.some((p) => segment2.playerVotes[p.id]);
 
   if (segment2.showResult) {
-    const lieIsStmt1 = stmtObj.lieIndex === 1;
+    const lieIdx = stmtObj.lieIndex;
     const totalVotes2 = Object.values(counts).reduce((a, b) => a + b, 0);
     return (
       <div className="w-full h-full flex flex-col overflow-hidden relative" style={{ backgroundColor: '#0f0202' }}>
@@ -928,14 +927,15 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
               textShadow: '0 0 5vw rgba(248,113,113,0.5)',
             }}
           >
-            {lieIsStmt1 ? 'Statement 1' : 'Statement 2'} is the Lie
+            {`Statement ${lieIdx + 1}`} is the Lie
           </p>
         </div>
 
-        {/* Row 2 (tertiary): Two statement cards side by side, small */}
+        {/* Row 2 (tertiary): Statement cards side by side, small */}
         <div className="flex shrink-0 w-full" style={{ padding: '0 5vw 1.5vw', gap: '1vw' }}>
-          <StatementCard text={stmtObj.statement1} label="Statement 1" highlight={lieIsStmt1 ? 'lie' : 'truth'} />
-          <StatementCard text={stmtObj.statement2} label="Statement 2" highlight={lieIsStmt1 ? 'truth' : 'lie'} />
+          {stmtObj.statements.map((stmt, i) => (
+            <StatementCard key={i} text={stmt} label={`Statement ${i + 1}`} highlight={i === lieIdx ? 'lie' : 'truth'} />
+          ))}
         </div>
 
         {/* Row 3: Audience votes + Player votes side by side, no scroll */}
@@ -960,8 +960,10 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
             <div className="w-full rounded-2xl p-3 flex flex-col gap-3 overflow-hidden" style={{ backgroundColor: '#0d0d0f', border: '1px solid rgba(245,158,11,0.2)' }}>
               {nonStorytellers2.map((player) => {
                 const vote = segment2.playerVotes[player.id];
-                const voteLabel = vote === 'STATEMENT1' ? 'Stmt 1' : vote === 'STATEMENT2' ? 'Stmt 2' : null;
-                const voteColor = vote === 'STATEMENT1' ? '#fbbf24' : vote === 'STATEMENT2' ? '#a78bfa' : '#3f3f46';
+                const STMT_PALETTE = ['#fbbf24', '#a78bfa', '#34d399', '#60a5fa', '#f472b6'];
+                const stmtIdx = vote?.startsWith('STATEMENT_') ? parseInt(vote.replace('STATEMENT_', ''), 10) : null;
+                const voteLabel = stmtIdx !== null ? `Stmt ${stmtIdx + 1}` : null;
+                const voteColor = stmtIdx !== null ? STMT_PALETTE[stmtIdx % STMT_PALETTE.length] : '#3f3f46';
                 return (
                   <div key={player.id} className="flex items-center gap-2">
                     <img src={player.photo} alt={player.name} className="rounded-full object-cover shrink-0"
@@ -1010,8 +1012,9 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
           </div>
         </div>
         <div className="flex" style={{ gap: '1.04vw' }}>
-          <StatementCard text={stmtObj.statement1} label="Statement 1" />
-          <StatementCard text={stmtObj.statement2} label="Statement 2" />
+          {stmtObj.statements.map((stmt, i) => (
+            <StatementCard key={i} text={stmt} label={`Statement ${i + 1}`} />
+          ))}
         </div>
       </div>
 
@@ -1033,8 +1036,10 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
             >
               {nonStorytellers2.map((player) => {
                 const vote = segment2.playerVotes[player.id];
-                const voteLabel = vote === 'STATEMENT1' ? 'Statement 1' : vote === 'STATEMENT2' ? 'Statement 2' : null;
-                const voteColor = vote === 'STATEMENT1' ? '#fbbf24' : vote === 'STATEMENT2' ? '#a78bfa' : '#3f3f46';
+                const STMT_PALETTE = ['#fbbf24', '#a78bfa', '#34d399', '#60a5fa', '#f472b6'];
+                const stmtIdx = vote?.startsWith('STATEMENT_') ? parseInt(vote.replace('STATEMENT_', ''), 10) : null;
+                const voteLabel = stmtIdx !== null ? `Statement ${stmtIdx + 1}` : null;
+                const voteColor = stmtIdx !== null ? STMT_PALETTE[stmtIdx % STMT_PALETTE.length] : '#3f3f46';
                 return (
                   <div key={player.id} className="flex items-center gap-4">
                     <img
@@ -1487,7 +1492,7 @@ export default function DisplayPage() {
           <img
             src="/logo.png"
             alt="Lie Hard"
-            style={{ maxWidth: '60vw', maxHeight: '60vh', objectFit: 'contain' }}
+            style={{ maxWidth: '70vw', maxHeight: '70vh', objectFit: 'contain' }}
           />
         </div>
       )}

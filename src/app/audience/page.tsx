@@ -16,7 +16,7 @@ import { db, auth } from '@/lib/firebase';
 interface Player { id: number; name: string; score: number; photo: string; }
 interface WarmupStatement { statement: string; isLie: boolean; }
 interface Segment1Statement { playerId: number; playerName: string; statement: string; isLie: boolean; }
-interface Segment2Statement { playerId: number; playerName: string; statement1: string; statement2: string; lieIndex: 1 | 2; }
+interface Segment2Statement { playerId: number; playerName: string; statements: string[]; lieIndex: number; }
 
 interface GameState {
   phase: 'SETUP' | 'WARMUP' | 'SEGMENT1' | 'SEGMENT2' | 'SEGMENT3' | 'FINAL';
@@ -390,8 +390,7 @@ export default function AudiencePage() {
     const label =
       choice === 'TRUTH' ? 'TRUTH'
       : choice === 'LIE' ? 'LIE'
-      : choice === 'STATEMENT1' ? 'Statement 1 is the Lie'
-      : choice === 'STATEMENT2' ? 'Statement 2 is the Lie'
+      : choice.startsWith('STATEMENT_') ? `Statement ${parseInt(choice.replace('STATEMENT_', ''), 10) + 1} is the Lie`
       : gameState!.players.find((p) => p.id === parseInt(choice))?.name ?? `Player ${choice}`;
     const color = choice === 'TRUTH' ? 'text-green-400' : choice === 'LIE' ? 'text-red-400' : 'text-orange-400';
     return (
@@ -475,23 +474,23 @@ export default function AudiencePage() {
             <>
               <p className="text-orange-400 text-2xl font-bold text-center mb-4">{storytellerName}</p>
               <div className="flex flex-col gap-4 mb-8">
-                <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-                  <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">Statement 1</p>
-                  <p className="text-white text-lg leading-relaxed">{stmtObj.statement1}</p>
-                </div>
-                <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-                  <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">Statement 2</p>
-                  <p className="text-white text-lg leading-relaxed">{stmtObj.statement2}</p>
-                </div>
+                {stmtObj.statements.map((stmt, i) => (
+                  <div key={i} className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+                    <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">Statement {i + 1}</p>
+                    <p className="text-white text-lg leading-relaxed">{stmt}</p>
+                  </div>
+                ))}
               </div>
             </>
           )}
           {showButtons ? (
             <>
-              <button className={`${btnBase} bg-orange-500 text-white`} disabled={submitting}
-                onClick={() => { setShowChange(false); vote('STATEMENT1'); }}>Statement 1 is the Lie</button>
-              <button className={`${btnBase} bg-purple-600 text-white`} disabled={submitting}
-                onClick={() => { setShowChange(false); vote('STATEMENT2'); }}>Statement 2 is the Lie</button>
+              {(stmtObj?.statements ?? []).map((_, i) => (
+                <button key={i} className={`${btnBase} bg-orange-500 text-white`} disabled={submitting}
+                  onClick={() => { setShowChange(false); vote(`STATEMENT_${i}`); }}>
+                  Statement {i + 1} is the Lie
+                </button>
+              ))}
             </>
           ) : <ConfirmationMessage choice={myVote!.choice} />}
         </div>

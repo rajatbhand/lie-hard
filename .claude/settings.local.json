@@ -6,7 +6,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:view.github.com)",
       "Bash(firebase deploy:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/rajatbhand/bachelor-gameshow/master/src/app/control/page.tsx\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/rajatbhand/bachelor-gameshow/master/src/lib/gameState.ts\")"
     ]
   }
 }

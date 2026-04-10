@@ -41,3 +41,4 @@ yarn-error.log*
 next-env.d.ts
 LIAR_HEARTS_PRD.md
 .firebase/
+.claude/settings.local.json

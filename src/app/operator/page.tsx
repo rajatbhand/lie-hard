@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
-import { doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, onSnapshot, collection, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Papa from 'papaparse';
 import { useControlAccess } from '@/contexts/ControlAccessContext';
@@ -30,9 +30,8 @@ interface Segment1Statement {
 interface Segment2Statement {
   playerId: number;
   playerName: string;
-  statement1: string;
-  statement2: string;
-  lieIndex: 1 | 2;
+  statements: string[];
+  lieIndex: number; // 0-based index of the lie statement
 }
 
 interface GameState {
@@ -67,7 +66,7 @@ interface GameState {
   segment2: {
     statements: Segment2Statement[];
     currentStorytellerId: number | null;
-    playerVotes: { [playerId: number]: 'STATEMENT1' | 'STATEMENT2' | null };
+    playerVotes: { [playerId: number]: string | null };
     audienceVotingOpen: boolean;
     showResult: boolean;
     completedStorytellers: number[];
@@ -142,9 +141,11 @@ function VoteBars({ counts }: { counts: Record<string, number> }) {
   const colorMap: Record<string, string> = {
     TRUTH: '#4ade80',
     LIE: '#f87171',
-    STATEMENT1: '#fbbf24',
-    STATEMENT2: '#a78bfa',
   };
+  const STATEMENT_PALETTE = ['#fbbf24', '#a78bfa', '#34d399', '#60a5fa', '#f472b6'];
+  Object.keys(counts).forEach((key, i) => {
+    if (key.startsWith('STATEMENT_')) colorMap[key] = STATEMENT_PALETTE[i % STATEMENT_PALETTE.length];
+  });
   return (
     <div className="space-y-3 rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
       {Object.entries(counts).map(([label, count]) => {
@@ -267,7 +268,7 @@ export default function OperatorPage() {
   const [warmupData, setWarmupData] = useState<WarmupStatement[]>([]);
   const [seg1Data, setSeg1Data] = useState<Segment1Statement[]>([]);
   const [seg2Data, setSeg2Data] = useState<Segment2Statement[]>([]);
-  const [seg3Meta, setSeg3Meta] = useState<{ photoTitle: string } | null>(null);
+  const [seg3Title, setSeg3Title] = useState<string>('');
   const [seg3Photo, setSeg3Photo] = useState<string>('');
 
   const [warmupVoteLocked, setWarmupVoteLocked] = useState(false);
@@ -407,26 +408,24 @@ export default function OperatorPage() {
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: (results) => {
-        setSeg2Data((results.data as Record<string, string>[]).map((row) => ({
-          playerId: parseInt(row.player_id, 10),
-          playerName: row.player_name,
-          statement1: row.statement_1,
-          statement2: row.statement_2,
-          lieIndex: parseInt(row.lie_index, 10) as 1 | 2,
-        })));
-      },
-      error: (err) => alert(`CSV error: ${err.message}`),
-    });
-  }
-
-  function parseSeg3Csv(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      complete: (results) => {
-        const row = (results.data as Record<string, string>[])[0];
-        if (row) setSeg3Meta({ photoTitle: row.photo_title });
+        const rows = results.data as Record<string, string>[];
+        // Group rows by player_id; each row has: player_id, player_name, statement, is_lie
+        const byPlayer: Record<number, { playerName: string; statements: string[]; lieIndex: number }> = {};
+        rows.forEach((row) => {
+          const id = parseInt(row.player_id, 10);
+          if (!byPlayer[id]) byPlayer[id] = { playerName: row.player_name, statements: [], lieIndex: 0 };
+          const idx = byPlayer[id].statements.length;
+          byPlayer[id].statements.push(row.statement);
+          if (row.is_lie === 'true') byPlayer[id].lieIndex = idx;
+        });
+        setSeg2Data(
+          Object.entries(byPlayer).map(([id, data]) => ({
+            playerId: parseInt(id, 10),
+            playerName: data.playerName,
+            statements: data.statements,
+            lieIndex: data.lieIndex,
+          }))
+        );
       },
       error: (err) => alert(`CSV error: ${err.message}`),
     });
@@ -460,7 +459,7 @@ export default function OperatorPage() {
     setWarmupData(gs.warmup.statements);
     setSeg1Data(gs.segment1.statements);
     setSeg2Data(gs.segment2.statements);
-    if (gs.segment3.photoTitle) setSeg3Meta({ photoTitle: gs.segment3.photoTitle });
+    if (gs.segment3.photoTitle) setSeg3Title(gs.segment3.photoTitle);
     setSeg3Photo(gs.segment3.photoUrl ?? '');
   }
 
@@ -512,8 +511,7 @@ export default function OperatorPage() {
     if (playerNames.some((n) => !n.trim())) errors.push(`All ${playerCount} player names must be filled.`);
     if (warmupData.length < 1) errors.push('Warmup CSV must have at least 1 row.');
     if (seg1Data.length !== playerCount) errors.push(`Segment 1 CSV must have exactly ${playerCount} rows (one per player).`);
-    if (seg2Data.length !== playerCount) errors.push(`Segment 2 CSV must have exactly ${playerCount} rows (one per player).`);
-    if (!seg3Meta) errors.push('Segment 3 CSV must be uploaded.');
+    if (seg2Data.length < 1) errors.push('Segment 2 CSV must have at least 1 row.');
     if (errors.length > 0) { alert(errors.join('\n')); return; }
 
     const emptyVotes = Object.fromEntries(Array.from({ length: playerCount }, (_, i) => [i + 1, null]));
@@ -526,7 +524,7 @@ export default function OperatorPage() {
       warmup: { ...initialGameState.warmup, statements: warmupData },
       segment1: { ...initialGameState.segment1, statements: seg1Data, playerVotes: emptyVotes },
       segment2: { ...initialGameState.segment2, statements: seg2Data, playerVotes: emptyVotes },
-      segment3: { ...initialGameState.segment3, photoUrl: seg3Photo || null, photoTitle: seg3Meta!.photoTitle },
+      segment3: { ...initialGameState.segment3, photoUrl: seg3Photo || null, photoTitle: seg3Title || null },
     };
     setDoc(doc(db, 'gameState', 'live'), newState)
       .then(() => alert('Show started! Phase set to WARMUP.'))
@@ -549,11 +547,11 @@ export default function OperatorPage() {
     nonStorytellers.forEach((player) => {
       const vote = segment1.playerVotes[player.id];
       if (vote === correctAnswer) {
-        totals[player.id] += 50;
-        lines.push(`${player.name} voted ${vote} → CORRECT → ${player.name} +50 pts`);
+        totals[player.id] += 10;
+        lines.push(`${player.name} voted ${vote} → CORRECT → ${player.name} +10 pts`);
       } else if (vote) {
-        totals[storytellerId] += 50;
-        lines.push(`${player.name} voted ${vote} → WRONG → ${storytellerName} +50 pts`);
+        totals[storytellerId] += 10;
+        lines.push(`${player.name} voted ${vote} → WRONG → ${storytellerName} +10 pts`);
       } else {
         lines.push(`${player.name} did not vote`);
       }
@@ -589,7 +587,7 @@ export default function OperatorPage() {
     const stmtObj = segment2.statements.find((s) => s.playerId === segment2.currentStorytellerId);
     if (!stmtObj) return;
     const storytellerId = segment2.currentStorytellerId!;
-    const correctAnswer = stmtObj.lieIndex === 1 ? 'STATEMENT1' : 'STATEMENT2';
+    const correctAnswer = 'STATEMENT_' + stmtObj.lieIndex;
     const nonStorytellers = players.filter((p) => p.id !== storytellerId);
     const totals: Record<number, number> = Object.fromEntries(players.map((p) => [p.id, 0]));
     const storytellerName = players.find((p) => p.id === storytellerId)?.name ?? 'Storyteller';
@@ -597,11 +595,11 @@ export default function OperatorPage() {
     nonStorytellers.forEach((player) => {
       const vote = segment2.playerVotes[player.id];
       if (vote === correctAnswer) {
-        totals[player.id] += 100;
-        lines.push(`${player.name} voted ${vote} → CORRECT → ${player.name} +100 pts`);
+        totals[player.id] += 20;
+        lines.push(`${player.name} voted ${vote} → CORRECT → ${player.name} +20 pts`);
       } else if (vote) {
-        totals[storytellerId] += 100;
-        lines.push(`${player.name} voted ${vote} → WRONG → ${storytellerName} +100 pts`);
+        totals[storytellerId] += 20;
+        lines.push(`${player.name} voted ${vote} → WRONG → ${storytellerName} +20 pts`);
       } else {
         lines.push(`${player.name} did not vote`);
       }
@@ -650,19 +648,37 @@ export default function OperatorPage() {
     if (!gameState) return;
     const winner = gameState.players.find((p) => p.id === winnerId);
     const updatedPlayers = gameState.players.map((p) =>
-      p.id === winnerId ? { ...p, score: p.score + 300 } : p
+      p.id === winnerId ? { ...p, score: p.score + 50 } : p
     );
     await db_update({
       players: updatedPlayers,
       'segment3.winnerId': winnerId,
       'segment3.showResult': true,
-      scorePopupDeltas: winner ? [{ name: winner.name, delta: 300 }] : [],
+      scorePopupDeltas: winner ? [{ name: winner.name, delta: 50 }] : [],
       showScorePopup: false,
     });
     await awardVoterScores('seg3', String(winnerId));
   }
 
   // ── Render helpers (plain functions, NOT component definitions) ────────────
+
+  async function deleteUserData() {
+    if (!confirm('Delete all audience voter data? This removes all voter profiles and votes from Firestore. This cannot be undone.')) return;
+    if (!confirm('FINAL CONFIRMATION: All voter accounts and votes will be permanently deleted. Continue?')) return;
+    try {
+      const votersSnap = await getDocs(collection(db, 'voters'));
+      const batch = writeBatch(db);
+      votersSnap.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+      await updateDoc(doc(db, 'gameState', 'live'), {
+        audienceVotes: {},
+        voterScores: {},
+      });
+      alert(`Deleted ${votersSnap.size} voter account(s) and cleared all votes.`);
+    } catch (e: unknown) {
+      alert(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   function renderBanterTimer() {
     const bt = gameState?.banterTimer;
@@ -937,6 +953,11 @@ export default function OperatorPage() {
               },
               { backgroundColor: '#1c0000', color: '#f87171', border: '1px solid #7f1d1d' },
             )}
+            {panelBtn(
+              'DELETE USER DATA',
+              deleteUserData,
+              { backgroundColor: '#1c0000', color: '#f87171', border: '1px solid #7f1d1d' },
+            )}
           </div>
 
         </div>
@@ -1018,8 +1039,7 @@ export default function OperatorPage() {
               {[
                 { label: 'WARMUP CSV', sample: '/warmup_sample.csv', onChange: parseWarmupCsv, count: warmupData.length, preview: warmupData.map((r) => r.statement) },
                 { label: 'SEGMENT 1 CSV', sample: '/segment1_sample.csv', onChange: parseSeg1Csv, count: seg1Data.length, preview: seg1Data.map((r) => `${r.playerName}: ${r.statement}`) },
-                { label: 'SEGMENT 2 CSV', sample: '/segment2_sample.csv', onChange: parseSeg2Csv, count: seg2Data.length, preview: seg2Data.map((r) => `${r.playerName}: "${r.statement1}" / "${r.statement2}"`) },
-                { label: 'SEGMENT 3 CSV', sample: '/segment3_sample.csv', onChange: parseSeg3Csv, count: seg3Meta ? 1 : 0, preview: seg3Meta ? [seg3Meta.photoTitle] : [] },
+                { label: 'SEGMENT 2 CSV', sample: '/segment2_sample.csv', onChange: parseSeg2Csv, count: seg2Data.length, preview: seg2Data.map((r) => `${r.playerName}: ${r.statements.length} statement(s)`) },
               ].map(({ label, sample, onChange, count, preview }) => (
                 <div key={label} className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
                   <div className="flex items-center justify-between mb-3">
@@ -1053,6 +1073,18 @@ export default function OperatorPage() {
                   }} />
                 </label>
                 {seg3Photo && <img src={seg3Photo} alt="Object preview" className="h-24 rounded-lg object-cover mt-3" style={{ border: '1px solid #3f3f46' }} />}
+              </div>
+
+              <div className="rounded-lg p-4" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+                <p className="font-mono text-sm font-bold uppercase tracking-widest mb-3" style={{ color: '#a1a1aa' }}>SEGMENT 3 PHOTO TITLE <span style={{ color: '#52525b' }}>(optional)</span></p>
+                <input
+                  type="text"
+                  value={seg3Title}
+                  onChange={(e) => setSeg3Title(e.target.value)}
+                  placeholder="e.g. The Mystery Object"
+                  className="w-full px-3 py-2 rounded font-mono text-sm focus:outline-none"
+                  style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                />
               </div>
             </div>
           </div>
@@ -1304,7 +1336,8 @@ export default function OperatorPage() {
     const { segment2, players } = gameState;
     const stmtObj = segment2.statements.find((s) => s.playerId === segment2.currentStorytellerId);
     const nonStorytellers = players.filter((p) => p.id !== segment2.currentStorytellerId);
-    const counts = getVoteCounts(`seg2-${segment2.currentStorytellerId}`, ['STATEMENT1', 'STATEMENT2']);
+    const voteOptions = stmtObj ? stmtObj.statements.map((_, i) => `STATEMENT_${i}`) : ['STATEMENT_0', 'STATEMENT_1'];
+    const counts = getVoteCounts(`seg2-${segment2.currentStorytellerId}`, voteOptions);
     const allDone = segment2.completedStorytellers.length === players.length;
 
     return (
@@ -1322,19 +1355,25 @@ export default function OperatorPage() {
           <div className="grid grid-cols-2 gap-6">
             {/* Left col: statements + player votes */}
             <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl p-4" style={{ border: '1px solid #78350f', backgroundColor: '#0f0900' }}>
-                  <p className="font-mono text-sm font-bold mb-2" style={{ color: '#fbbf24' }}>STATEMENT 1</p>
-                  <p className="text-base leading-relaxed" style={{ color: '#fafafa' }}>{stmtObj.statement1}</p>
-                </div>
-                <div className="rounded-xl p-4" style={{ border: '1px solid #4c1d95', backgroundColor: '#080010' }}>
-                  <p className="font-mono text-sm font-bold mb-2" style={{ color: '#a78bfa' }}>STATEMENT 2</p>
-                  <p className="text-base leading-relaxed" style={{ color: '#fafafa' }}>{stmtObj.statement2}</p>
-                </div>
-              </div>
+              {(() => {
+                const STMT_PALETTE = ['#fbbf24', '#a78bfa', '#34d399', '#60a5fa', '#f472b6'];
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    {stmtObj.statements.map((stmt, i) => {
+                      const color = STMT_PALETTE[i % STMT_PALETTE.length];
+                      return (
+                        <div key={i} className="rounded-xl p-4" style={{ border: `1px solid ${color}33`, backgroundColor: '#0d0d0f' }}>
+                          <p className="font-mono text-sm font-bold mb-2" style={{ color }}>{`STATEMENT ${i + 1}${i === stmtObj.lieIndex ? ' ★ LIE' : ''}`}</p>
+                          <p className="text-base leading-relaxed" style={{ color: '#fafafa' }}>{stmt}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               <span className="font-mono text-sm font-bold px-3 py-1.5 rounded inline-block"
                 style={{ backgroundColor: '#1c0a00', color: '#f59e0b', border: '1px solid #78350f' }}>
-                LIE IS STATEMENT {stmtObj.lieIndex}
+                LIE IS STATEMENT {stmtObj.lieIndex + 1}
               </span>
 
               <div>
@@ -1343,21 +1382,21 @@ export default function OperatorPage() {
                   {nonStorytellers.map((player) => (
                     <div key={player.id} className="flex items-center gap-3">
                       <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
-                      {([
-                        { value: 'STATEMENT1', label: 'STMT 1 IS LIE', bg: '#78350f', color: '#fbbf24', border: '#92400e' },
-                        { value: 'STATEMENT2', label: 'STMT 2 IS LIE', bg: '#4c1d95', color: '#c4b5fd', border: '#5b21b6' },
-                      ] as const).map(({ value, label, bg, color, border }) => {
+                      {stmtObj.statements.map((_, i) => {
+                        const STMT_PALETTE = ['#fbbf24', '#a78bfa', '#34d399', '#60a5fa', '#f472b6'];
+                        const value = `STATEMENT_${i}`;
+                        const color = STMT_PALETTE[i % STMT_PALETTE.length];
                         const selected = segment2.playerVotes[player.id] === value;
                         return (
                           <button key={value}
                             onClick={() => db_update({ [`segment2.playerVotes.${player.id}`]: value })}
-                            className="flex-1 py-3 rounded-lg font-mono text-sm font-bold transition-colors"
+                            className="flex-1 py-2 rounded-lg font-mono text-xs font-bold transition-colors"
                             style={{
-                              backgroundColor: selected ? bg : '#27272a',
+                              backgroundColor: selected ? '#1a1a1a' : '#27272a',
                               color: selected ? color : '#71717a',
-                              border: `1px solid ${selected ? border : '#3f3f46'}`,
+                              border: `1px solid ${selected ? color : '#3f3f46'}`,
                             }}>
-                            {label}
+                            {`STMT ${i + 1}`}
                           </button>
                         );
                       })}
@@ -1376,7 +1415,7 @@ export default function OperatorPage() {
                 <button onClick={() => {
                   db_update({ 'segment2.showResult': true });
                   calcSeg2Points();
-                  if (stmtObj) awardVoterScores(`seg2-${segment2.currentStorytellerId}`, stmtObj.lieIndex === 1 ? 'STATEMENT1' : 'STATEMENT2');
+                  if (stmtObj) awardVoterScores(`seg2-${segment2.currentStorytellerId}`, `STATEMENT_${stmtObj.lieIndex}`);
                 }}
                   className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
                   style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
