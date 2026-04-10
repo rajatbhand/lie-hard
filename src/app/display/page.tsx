@@ -1485,7 +1485,7 @@ export default function DisplayPage() {
           style={{ backgroundColor: 'rgba(0,0,0,0.95)' }}
         >
           <img
-            src="/logo.svg"
+            src="/logo.png"
             alt="Lie Hard"
             style={{ maxWidth: '60vw', maxHeight: '60vh', objectFit: 'contain' }}
           />
