@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Papa from 'papaparse';
+import { useControlAccess } from '@/contexts/ControlAccessContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -244,6 +245,20 @@ function TopVotersPanel({ voterScores }: { voterScores: GameState['voterScores']
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export default function OperatorPage() {
+  const { isAuthenticated, authenticate } = useControlAccess();
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    const success = await authenticate(authPassword);
+    if (!success) {
+      setAuthError('Incorrect password. Please try again.');
+      setAuthPassword('');
+    }
+  };
+
   const [gameState, setGameState] = useState<GameState | null>(null);
 
   const [playerCount, setPlayerCount] = useState(0);
@@ -1567,6 +1582,62 @@ export default function OperatorPage() {
   const currentPhase: GameState['phase'] = isValidPhase ? rawPhase as GameState['phase'] : 'SETUP';
   const currentPhaseIdx = PHASE_ORDER.indexOf(currentPhase);
   const audienceUrl = `${origin}/audience`;
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#09090b' }}>
+        <div className="rounded-lg p-8 max-w-md w-full" style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46' }}>
+          <div className="text-center mb-6">
+            <h1 className="font-mono text-2xl font-bold tracking-widest mb-1" style={{ color: '#f59e0b' }}>LIE HARD</h1>
+            <p className="font-mono text-xs uppercase tracking-widest mb-4" style={{ color: '#71717a' }}>OPERATOR PANEL</p>
+            <p className="text-sm" style={{ color: '#a1a1aa' }}>Enter password to continue</p>
+          </div>
+
+          <form onSubmit={handlePasswordSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-mono uppercase tracking-widest mb-2" style={{ color: '#71717a' }}>
+                Password
+              </label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg text-sm focus:outline-none focus:ring-2"
+                style={{
+                  backgroundColor: '#09090b',
+                  border: '1px solid #3f3f46',
+                  color: '#fafafa',
+                  // @ts-ignore
+                  '--tw-ring-color': '#f59e0b',
+                }}
+                placeholder="Enter operator password"
+                autoFocus
+                required
+              />
+            </div>
+
+            {authError && (
+              <div className="p-3 rounded-lg text-sm" style={{ backgroundColor: '#450a0a', color: '#fca5a5' }}>
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-lg font-mono font-bold text-sm uppercase tracking-widest transition-colors"
+              style={{ backgroundColor: '#f59e0b', color: '#09090b' }}
+            >
+              Access Operator Panel
+            </button>
+          </form>
+
+          <p className="text-center text-xs font-mono mt-6" style={{ color: '#3f3f46' }}>
+            Authorized personnel only
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#09090b', color: '#fafafa' }}>

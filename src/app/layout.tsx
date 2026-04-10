@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ControlAccessProvider } from "@/contexts/ControlAccessContext";
 
 export const metadata: Metadata = {
   title: "Lie Hard Game Show",
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ControlAccessProvider>{children}</ControlAccessProvider>
+      </body>
     </html>
   );
 }
