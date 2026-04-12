@@ -69,7 +69,7 @@ interface GameState {
     audienceVotingOpen: boolean;
     showResult: boolean;
     completedStorytellers: number[];
-    revealedCount: number;
+    revealedStatements: number[];
   };
   segment3: {
     photoUrl: string | null;
@@ -1014,7 +1014,7 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
         </div>
         <div className="flex" style={{ gap: '1.04vw' }}>
           {stmtObj.statements.map((stmt, i) => {
-            const revealed = i < (segment2.revealedCount ?? 0);
+            const revealed = (segment2.revealedStatements ?? []).includes(i);
             if (revealed) {
               return <StatementCard key={i} text={stmt} label={`Statement ${i + 1}`} />;
             }

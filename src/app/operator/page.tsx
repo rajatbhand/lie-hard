@@ -70,7 +70,7 @@ interface GameState {
     audienceVotingOpen: boolean;
     showResult: boolean;
     completedStorytellers: number[];
-    revealedCount: number;
+    revealedStatements: number[];
   };
   segment3: {
     photoUrl: string | null;
@@ -122,7 +122,7 @@ const initialGameState: GameState = {
     audienceVotingOpen: false,
     showResult: false,
     completedStorytellers: [],
-    revealedCount: 0,
+    revealedStatements: [],
   },
   segment3: { photoUrl: null, photoTitle: null, audienceVotingOpen: false, showResult: false, winnerId: null },
   audienceVotes: {},
@@ -1162,9 +1162,10 @@ export default function OperatorPage() {
         {/* Right: vote bars + reveal */}
         <div className="space-y-5">
           <VoteBars counts={counts} />
-          {warmupVoteLocked && !warmup.showResult && (
+          {!warmup.showResult && (
             <button onClick={() => {
-              db_update({ 'warmup.showResult': true });
+              db_update({ 'warmup.showResult': true, 'warmup.audienceVotingOpen': false });
+              setWarmupVoteLocked(true);
               awardVoterScores(`warmup-${warmup.currentIndex}`, stmt?.isLie ? 'LIE' : 'TRUTH');
             }}
               className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
@@ -1350,7 +1351,7 @@ export default function OperatorPage() {
             'segment2.playerVotes': Object.fromEntries(players.map((p) => [p.id, null])),
             'segment2.audienceVotingOpen': false,
             'segment2.showResult': false,
-            'segment2.revealedCount': 0,
+            'segment2.revealedStatements': [],
           })
         )}
 
@@ -1360,13 +1361,32 @@ export default function OperatorPage() {
             <div className="space-y-5">
               {(() => {
                 const STMT_PALETTE = ['#fbbf24', '#a78bfa', '#34d399', '#60a5fa', '#f472b6'];
+                const revealed = segment2.revealedStatements ?? [];
                 return (
                   <div className="grid grid-cols-2 gap-3">
                     {stmtObj.statements.map((stmt, i) => {
                       const color = STMT_PALETTE[i % STMT_PALETTE.length];
+                      const isRevealed = revealed.includes(i);
                       return (
-                        <div key={i} className="rounded-xl p-4" style={{ border: `1px solid ${color}33`, backgroundColor: '#0d0d0f' }}>
-                          <p className="font-mono text-sm font-bold mb-2" style={{ color }}>{`STATEMENT ${i + 1}${i === stmtObj.lieIndex ? ' ★ LIE' : ''}`}</p>
+                        <div key={i} className="rounded-xl p-4 space-y-3" style={{ border: `1px solid ${isRevealed ? color + '66' : '#3f3f46'}`, backgroundColor: '#0d0d0f' }}>
+                          <div className="flex items-center justify-between">
+                            <p className="font-mono text-sm font-bold" style={{ color }}>{`STATEMENT ${i + 1}${i === stmtObj.lieIndex ? ' ★ LIE' : ''}`}</p>
+                            <button
+                              onClick={() => {
+                                const next = isRevealed
+                                  ? revealed.filter((x) => x !== i)
+                                  : [...revealed, i];
+                                db_update({ 'segment2.revealedStatements': next });
+                              }}
+                              className="font-mono text-xs font-bold px-2 py-1 rounded transition-colors"
+                              style={{
+                                backgroundColor: isRevealed ? '#052e16' : '#1a1a1a',
+                                color: isRevealed ? '#4ade80' : '#71717a',
+                                border: `1px solid ${isRevealed ? '#166534' : '#3f3f46'}`,
+                              }}>
+                              {isRevealed ? 'SHOWN' : 'SHOW'}
+                            </button>
+                          </div>
                           <p className="text-base leading-relaxed" style={{ color: '#fafafa' }}>{stmt}</p>
                         </div>
                       );
@@ -1414,29 +1434,21 @@ export default function OperatorPage() {
               {renderBanterTimer()}
               <VoteBars counts={counts} />
 
-              {/* Statement reveal progress + button */}
+              {/* Statement reveal progress + reveal truth/lie */}
               {!segment2.showResult && (() => {
-                const revealed = segment2.revealedCount ?? 0;
+                const revealed = segment2.revealedStatements ?? [];
                 const total = stmtObj.statements.length;
-                const allRevealed = revealed >= total;
+                const allRevealed = revealed.length >= total;
                 return (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between px-1">
                       <span className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>
-                        Statements revealed
+                        Statements shown
                       </span>
                       <span className="font-mono text-sm font-bold" style={{ color: allRevealed ? '#4ade80' : '#f59e0b' }}>
-                        {revealed} / {total}
+                        {revealed.length} / {total}
                       </span>
                     </div>
-                    {!allRevealed && (
-                      <button
-                        onClick={() => db_update({ 'segment2.revealedCount': revealed + 1 })}
-                        className="w-full py-3 rounded-xl font-mono text-sm font-bold uppercase tracking-widest transition-colors"
-                        style={{ backgroundColor: '#1c1000', color: '#f59e0b', border: '1px solid #78350f' }}>
-                        REVEAL STATEMENT {revealed + 1}
-                      </button>
-                    )}
                     {allRevealed && (
                       <button onClick={() => {
                         db_update({ 'segment2.showResult': true });
