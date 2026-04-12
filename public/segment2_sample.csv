@@ -1,4 +1,7 @@
-player_id,player_name,statement_1,statement_2,lie_index
-1,"Karan","I studied in London for 2 years","I failed my driving test 5 times",2
-2,"Priya","I once met Shah Rukh Khan at an airport","I have a pet snake",1
-3,"Rohit","I have climbed a mountain above 4000m","I have never seen snow",2
+player_id,player_name,statement,is_lie
+1,Karan,I studied in London for 2 years,false
+1,Karan,I failed my driving test 5 times,true
+2,Priya,I once met Shah Rukh Khan at an airport,false
+2,Priya,I have a pet snake,true
+3,Rohit,I have climbed a mountain above 4000m,false
+3,Rohit,I have never seen snow,true
