@@ -70,6 +70,7 @@ interface GameState {
     audienceVotingOpen: boolean;
     showResult: boolean;
     completedStorytellers: number[];
+    revealedCount: number;
   };
   segment3: {
     photoUrl: string | null;
@@ -121,6 +122,7 @@ const initialGameState: GameState = {
     audienceVotingOpen: false,
     showResult: false,
     completedStorytellers: [],
+    revealedCount: 0,
   },
   segment3: { photoUrl: null, photoTitle: null, audienceVotingOpen: false, showResult: false, winnerId: null },
   audienceVotes: {},
@@ -1348,6 +1350,7 @@ export default function OperatorPage() {
             'segment2.playerVotes': Object.fromEntries(players.map((p) => [p.id, null])),
             'segment2.audienceVotingOpen': false,
             'segment2.showResult': false,
+            'segment2.revealedCount': 0,
           })
         )}
 
@@ -1411,17 +1414,43 @@ export default function OperatorPage() {
               {renderBanterTimer()}
               <VoteBars counts={counts} />
 
-              {!segment2.showResult && (
-                <button onClick={() => {
-                  db_update({ 'segment2.showResult': true });
-                  calcSeg2Points();
-                  if (stmtObj) awardVoterScores(`seg2-${segment2.currentStorytellerId}`, `STATEMENT_${stmtObj.lieIndex}`);
-                }}
-                  className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
-                  style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
-                  REVEAL TRUTH / LIE
-                </button>
-              )}
+              {/* Statement reveal progress + button */}
+              {!segment2.showResult && (() => {
+                const revealed = segment2.revealedCount ?? 0;
+                const total = stmtObj.statements.length;
+                const allRevealed = revealed >= total;
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>
+                        Statements revealed
+                      </span>
+                      <span className="font-mono text-sm font-bold" style={{ color: allRevealed ? '#4ade80' : '#f59e0b' }}>
+                        {revealed} / {total}
+                      </span>
+                    </div>
+                    {!allRevealed && (
+                      <button
+                        onClick={() => db_update({ 'segment2.revealedCount': revealed + 1 })}
+                        className="w-full py-3 rounded-xl font-mono text-sm font-bold uppercase tracking-widest transition-colors"
+                        style={{ backgroundColor: '#1c1000', color: '#f59e0b', border: '1px solid #78350f' }}>
+                        REVEAL STATEMENT {revealed + 1}
+                      </button>
+                    )}
+                    {allRevealed && (
+                      <button onClick={() => {
+                        db_update({ 'segment2.showResult': true });
+                        calcSeg2Points();
+                        if (stmtObj) awardVoterScores(`seg2-${segment2.currentStorytellerId}`, `STATEMENT_${stmtObj.lieIndex}`);
+                      }}
+                        className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
+                        style={{ backgroundColor: '#f59e0b', color: '#09090b' }}>
+                        REVEAL TRUTH / LIE
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               {seg2Preview && !seg2Awarded && (
                 <div className="rounded-xl p-5 space-y-3"

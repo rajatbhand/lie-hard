@@ -69,6 +69,7 @@ interface GameState {
     audienceVotingOpen: boolean;
     showResult: boolean;
     completedStorytellers: number[];
+    revealedCount: number;
   };
   segment3: {
     photoUrl: string | null;
@@ -1012,9 +1013,20 @@ function Segment2Screen({ gameState }: { gameState: GameState }) {
           </div>
         </div>
         <div className="flex" style={{ gap: '1.04vw' }}>
-          {stmtObj.statements.map((stmt, i) => (
-            <StatementCard key={i} text={stmt} label={`Statement ${i + 1}`} />
-          ))}
+          {stmtObj.statements.map((stmt, i) => {
+            const revealed = i < (segment2.revealedCount ?? 0);
+            if (revealed) {
+              return <StatementCard key={i} text={stmt} label={`Statement ${i + 1}`} />;
+            }
+            return (
+              <div key={i} className="flex-1 rounded-2xl flex items-center justify-center"
+                style={{ backgroundColor: '#0d0d0f', border: '1px solid rgba(245,158,11,0.12)', padding: '1.5vw' }}>
+                <p className="font-display uppercase tracking-widest" style={{ color: '#3f3f46', fontSize: 'clamp(11px, 1vw, 20px)' }}>
+                  Statement {i + 1}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
