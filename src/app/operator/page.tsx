@@ -405,7 +405,7 @@ export default function OperatorPage() {
           if (!byPlayer[id]) byPlayer[id] = { playerName: row.player_name, statements: [], lieIndex: 0 };
           const idx = byPlayer[id].statements.length;
           byPlayer[id].statements.push(row.statement);
-          if (row.is_lie === 'true') byPlayer[id].lieIndex = idx;
+          if (row.is_lie?.trim().toUpperCase() === 'TRUE') byPlayer[id].lieIndex = idx;
         });
         setSeg2Data(
           Object.entries(byPlayer).map(([id, data]) => ({

@@ -23,7 +23,7 @@ interface GameState {
   players: Player[];
   warmup: { statements: WarmupStatement[]; currentIndex: number; audienceVotingOpen: boolean; showResult: boolean; };
   segment1: { statements: Segment1Statement[]; currentStorytellerId: number | null; audienceVotingOpen: boolean; showResult: boolean; };
-  segment2: { statements: Segment2Statement[]; currentStorytellerId: number | null; audienceVotingOpen: boolean; showResult: boolean; };
+  segment2: { statements: Segment2Statement[]; currentStorytellerId: number | null; audienceVotingOpen: boolean; showResult: boolean; revealedStatements: number[]; };
   segment3: { photoUrl: string | null; photoTitle: string | null; audienceVotingOpen: boolean; showResult: boolean; winnerId: number | null; };
   audienceVotes: { [uid: string]: { choice: string; votingRound: string; displayName?: string; } };
 }
@@ -466,6 +466,9 @@ export default function AudiencePage() {
   if (segment2?.audienceVotingOpen && segment2.currentStorytellerId != null) {
     const stmtObj = segment2.statements?.find((s) => s.playerId === segment2.currentStorytellerId);
     const storytellerName = players.find((p) => p.id === segment2.currentStorytellerId)?.name ?? stmtObj?.playerName ?? '';
+    const revealed = segment2.revealedStatements ?? [];
+    const revealedStatements = (stmtObj?.statements ?? []).filter((_, i) => revealed.includes(i));
+    const allRevealed = stmtObj ? revealed.length >= stmtObj.statements.length : false;
     return (
       <div className="bg-black min-h-screen flex flex-col">
         <Header />
@@ -474,17 +477,23 @@ export default function AudiencePage() {
           {stmtObj && (
             <>
               <p className="text-orange-400 text-2xl font-bold text-center mb-4">{storytellerName}</p>
-              <div className="flex flex-col gap-4 mb-8">
-                {stmtObj.statements.map((stmt, i) => (
-                  <div key={i} className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-                    <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">Statement {i + 1}</p>
-                    <p className="text-white text-lg leading-relaxed">{stmt}</p>
-                  </div>
-                ))}
-              </div>
+              {revealedStatements.length === 0 ? (
+                <p className="text-gray-600 text-center text-base mb-8">Statements will appear here as they are revealed...</p>
+              ) : (
+                <div className="flex flex-col gap-4 mb-8">
+                  {(stmtObj?.statements ?? []).map((stmt, i) =>
+                    revealed.includes(i) ? (
+                      <div key={i} className="bg-gray-900 rounded-xl p-4 border border-gray-700">
+                        <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">Statement {i + 1}</p>
+                        <p className="text-white text-lg leading-relaxed">{stmt}</p>
+                      </div>
+                    ) : null
+                  )}
+                </div>
+              )}
             </>
           )}
-          {showButtons ? (
+          {allRevealed && showButtons ? (
             <>
               {(stmtObj?.statements ?? []).map((_, i) => (
                 <button key={i} className={`${btnBase} bg-orange-500 text-white`} disabled={submitting}
@@ -493,7 +502,11 @@ export default function AudiencePage() {
                 </button>
               ))}
             </>
-          ) : <ConfirmationMessage choice={myVote!.choice} />}
+          ) : allRevealed && !showButtons ? (
+            <ConfirmationMessage choice={myVote!.choice} />
+          ) : (
+            <p className="text-gray-500 text-center text-base mt-4">Voting opens after all statements are revealed</p>
+          )}
         </div>
       </div>
     );
