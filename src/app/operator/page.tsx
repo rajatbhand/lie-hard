@@ -183,36 +183,22 @@ interface SectionCardProps {
 
 function SectionCard({ id, title, currentPhase, render }: SectionCardProps) {
   const isActive = currentPhase === id;
-  const isDone = PHASE_ORDER.indexOf(currentPhase) > PHASE_ORDER.indexOf(id);
-  const [expanded, setExpanded] = useState(false);
-
-  // Collapse when this segment becomes active (operator navigated here)
-  useEffect(() => { if (isActive) setExpanded(false); }, [isActive]);
-
-  if (!isActive && !isDone) return null;
-
-  const showContent = isActive || expanded;
+  if (!isActive) return null;
 
   return (
     <div
       className="mb-4 rounded-xl overflow-hidden"
-      style={{ border: isActive ? '2px solid #f59e0b' : '1px solid #27272a', opacity: isDone && !expanded ? 0.5 : 1 }}
+      style={{ border: '2px solid #f59e0b' }}
     >
       <div
-        className="px-6 py-3 flex items-center justify-between"
-        style={{ backgroundColor: isActive ? '#130f00' : '#111113', cursor: isDone ? 'pointer' : 'default' }}
-        onClick={() => { if (isDone) setExpanded((v) => !v); }}
+        className="px-6 py-3"
+        style={{ backgroundColor: '#130f00' }}
       >
-        <span className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: isActive ? '#f59e0b' : '#52525b' }}>
-          {isActive ? '▶ ' : '✓ '}{title}
+        <span className="font-mono text-sm font-bold uppercase tracking-widest" style={{ color: '#f59e0b' }}>
+          ▶ {title}
         </span>
-        {isDone && (
-          <span className="font-mono text-sm" style={{ color: expanded ? '#f59e0b' : '#4ade80' }}>
-            {expanded ? '▲ COLLAPSE' : '▼ EXPAND'}
-          </span>
-        )}
       </div>
-      {showContent && <div className="p-6">{render()}</div>}
+      <div className="p-6">{render()}</div>
     </div>
   );
 }
@@ -1162,33 +1148,6 @@ export default function OperatorPage() {
             </button>
           </div>
 
-          {/* Player score adjustments */}
-          <div className="space-y-2">
-            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>PLAYER SCORES</p>
-            <div className="space-y-2">
-              {gameState.players.map((player) => (
-                <div key={player.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
-                  <span className="font-mono text-sm font-semibold flex-1 truncate" style={{ color: '#e4e4e7' }}>{player.name}</span>
-                  <span className="font-mono text-xs font-bold shrink-0" style={{ color: '#f59e0b' }}>{player.score}</span>
-                  <input
-                    type="number" min="1"
-                    value={scoreInputs[player.id] ?? ''}
-                    onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
-                    className="w-14 px-2 py-1 rounded font-mono text-xs text-center focus:outline-none"
-                    style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
-                    placeholder="pts"
-                  />
-                  <button onClick={() => applyScore(player.id, 1)}
-                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                    style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
-                  <button onClick={() => applyScore(player.id, -1)}
-                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                    style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <div className="pt-4" style={{ borderTop: '1px solid #27272a' }}>
             <button onClick={() => db_update({ phase: 'SEGMENT1' })}
               className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
@@ -1231,51 +1190,24 @@ export default function OperatorPage() {
             const isDone = completedStorytellers.includes(player.id);
             const isSelected = currentStorytellerId === player.id;
             return (
-              <div
+              <button
                 key={player.id}
-                className="flex flex-col rounded-xl transition-all"
+                disabled={isDone}
+                onClick={() => onSelect(player.id)}
+                className="flex flex-col items-center gap-3 p-5 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 style={{
                   border: isSelected ? '2px solid #f59e0b' : '1px solid #3f3f46',
                   backgroundColor: isSelected ? '#130f00' : '#18181b',
-                  opacity: isDone ? 0.4 : 1,
                 }}
               >
-                {/* Storyteller select area */}
-                <button
-                  disabled={isDone}
-                  onClick={() => onSelect(player.id)}
-                  className="flex flex-col items-center gap-3 p-5 w-full disabled:cursor-not-allowed"
-                >
-                  {player.photo && (
-                    <img src={player.photo} className="w-16 h-16 rounded-full object-cover" alt="" />
-                  )}
-                  <span className="font-mono text-base font-bold" style={{ color: isSelected ? '#f59e0b' : '#a1a1aa' }}>
-                    {player.name}
-                  </span>
-                  {isDone && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ DONE</span>}
-                </button>
-
-                {/* Score adjustment */}
-                <div className="px-3 pb-3 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                  <p className="font-mono text-xs text-center font-bold" style={{ color: '#f59e0b' }}>{player.score} pts</p>
-                  <div className="flex gap-1">
-                    <input
-                      type="number" min="1"
-                      value={scoreInputs[player.id] ?? ''}
-                      onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
-                      className="flex-1 min-w-0 px-1 py-1 rounded font-mono text-xs text-center focus:outline-none"
-                      style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
-                      placeholder="pts"
-                    />
-                    <button onClick={() => applyScore(player.id, 1)}
-                      className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                      style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
-                    <button onClick={() => applyScore(player.id, -1)}
-                      className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                      style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
-                  </div>
-                </div>
-              </div>
+                {player.photo && (
+                  <img src={player.photo} className="w-16 h-16 rounded-full object-cover" alt="" />
+                )}
+                <span className="font-mono text-base font-bold" style={{ color: isSelected ? '#f59e0b' : '#a1a1aa' }}>
+                  {player.name}
+                </span>
+                {isDone && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ DONE</span>}
+              </button>
             );
           })}
         </div>
@@ -1609,32 +1541,13 @@ export default function OperatorPage() {
             const count = playerVoteCounts[player.id] ?? 0;
             const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
             return (
-              <div key={player.id} className="space-y-2">
-                <div className="flex items-center gap-4">
-                  {player.photo && <img src={player.photo} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />}
-                  <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
-                  <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ backgroundColor: '#27272a' }}>
-                    <div className="h-4 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: '#f59e0b' }} />
-                  </div>
-                  <span className="font-mono text-sm font-bold w-24 text-right shrink-0" style={{ color: '#e4e4e7' }}>{count} ({pct}%)</span>
+              <div key={player.id} className="flex items-center gap-4">
+                {player.photo && <img src={player.photo} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />}
+                <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ backgroundColor: '#27272a' }}>
+                  <div className="h-4 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: '#f59e0b' }} />
                 </div>
-                <div className="flex items-center gap-2 pl-14">
-                  <span className="font-mono text-xs font-bold shrink-0" style={{ color: '#f59e0b' }}>{player.score} pts</span>
-                  <input
-                    type="number" min="1"
-                    value={scoreInputs[player.id] ?? ''}
-                    onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
-                    className="w-16 px-2 py-1 rounded font-mono text-xs text-center focus:outline-none"
-                    style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
-                    placeholder="pts"
-                  />
-                  <button onClick={() => applyScore(player.id, 1)}
-                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                    style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
-                  <button onClick={() => applyScore(player.id, -1)}
-                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                    style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
-                </div>
+                <span className="font-mono text-sm font-bold w-24 text-right shrink-0" style={{ color: '#e4e4e7' }}>{count} ({pct}%)</span>
               </div>
             );
           })}
@@ -1693,35 +1606,7 @@ export default function OperatorPage() {
   function renderFinal() {
     const audienceUrl = `${origin}/audience`;
     return (
-      <div className="space-y-6">
-        {/* Player score adjustments */}
-        <div className="space-y-2">
-          <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>PLAYER SCORES</p>
-          <div className="space-y-2">
-            {gameState!.players.map((player) => (
-              <div key={player.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
-                <span className="font-mono text-sm font-semibold flex-1 truncate" style={{ color: '#e4e4e7' }}>{player.name}</span>
-                <span className="font-mono text-xs font-bold shrink-0" style={{ color: '#f59e0b' }}>{player.score}</span>
-                <input
-                  type="number" min="1"
-                  value={scoreInputs[player.id] ?? ''}
-                  onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
-                  className="w-14 px-2 py-1 rounded font-mono text-xs text-center focus:outline-none"
-                  style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
-                  placeholder="pts"
-                />
-                <button onClick={() => applyScore(player.id, 1)}
-                  className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                  style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
-                <button onClick={() => applyScore(player.id, -1)}
-                  className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
-                  style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-2 gap-6">
         <div className="space-y-4">
           <p className="font-mono text-sm uppercase tracking-widest" style={{ color: '#52525b' }}>Display Controls</p>
           <div className="flex gap-3 flex-wrap">
@@ -1752,7 +1637,6 @@ export default function OperatorPage() {
             <p className="font-mono text-sm mt-3" style={{ color: '#52525b' }}>Scan to access audience voting</p>
           </div>
         )}
-        </div>
       </div>
     );
   }
@@ -1912,6 +1796,36 @@ export default function OperatorPage() {
             </div>
           )}
 
+          {/* Fixed player scoring card — visible once game is live */}
+          {currentPhase !== 'SETUP' && gameState.players.length > 0 && (
+            <div className="mb-6 rounded-xl p-4" style={{ border: '1px solid #27272a', backgroundColor: '#0d0d0f' }}>
+              <p className="font-mono text-xs uppercase tracking-widest mb-3" style={{ color: '#52525b' }}>PLAYER SCORES</p>
+              <div className="flex flex-wrap gap-3">
+                {gameState.players.map((player) => (
+                  <div key={player.id} className="flex items-center gap-2 rounded-lg px-3 py-2 flex-1 min-w-[180px]"
+                    style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46' }}>
+                    <span className="font-mono text-sm font-semibold flex-1 truncate" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                    <span className="font-mono text-xs font-bold shrink-0" style={{ color: '#f59e0b' }}>{player.score}</span>
+                    <input
+                      type="number" min="1"
+                      value={scoreInputs[player.id] ?? ''}
+                      onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
+                      className="w-14 px-2 py-1 rounded font-mono text-xs text-center focus:outline-none"
+                      style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                      placeholder="pts"
+                    />
+                    <button onClick={() => applyScore(player.id, 1)}
+                      className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                      style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
+                    <button onClick={() => applyScore(player.id, -1)}
+                      className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                      style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Phase sections */}
           <SectionCard id="SETUP" title="SETUP" currentPhase={currentPhase} render={renderSetup} />
           <SectionCard id="WARMUP" title="WARMUP ROUND" currentPhase={currentPhase} render={renderWarmup} />
@@ -1919,15 +1833,6 @@ export default function OperatorPage() {
           <SectionCard id="SEGMENT2" title="SEGMENT 2 — TWO STATEMENTS" currentPhase={currentPhase} render={renderSeg2} />
           <SectionCard id="SEGMENT3" title="SEGMENT 3 — WHO OWNS IT?" currentPhase={currentPhase} render={renderSeg3} />
           <SectionCard id="FINAL" title="FINAL" currentPhase={currentPhase} render={renderFinal} />
-
-          {/* Upcoming phases */}
-          {isValidPhase && PHASE_ORDER.slice(currentPhaseIdx + 1).map((phase) => (
-            <div key={phase} className="mb-2 px-5 py-3 rounded-lg flex items-center justify-between"
-              style={{ border: '1px solid #1f1f23', backgroundColor: '#0d0d0f' }}>
-              <span className="font-mono text-xs uppercase tracking-widest" style={{ color: '#27272a' }}>UPCOMING</span>
-              <span className="font-mono text-sm" style={{ color: '#27272a' }}>{PHASE_LABELS[phase]}</span>
-            </div>
-          ))}
         </main>
 
         {/* Fixed right panel */}

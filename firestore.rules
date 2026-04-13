@@ -8,8 +8,10 @@ service cloud.firestore {
     }
 
     // Voter registration — each user can only read/write their own doc
+    // Unauthenticated delete allowed so the operator panel can batch-clear all voter data
     match /voters/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, delete: if true;
     }
 
   }
