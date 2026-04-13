@@ -274,6 +274,7 @@ export default function OperatorPage() {
   const [seg3Photo, setSeg3Photo] = useState<string>('');
 
   const [warmupVoteLocked, setWarmupVoteLocked] = useState(false);
+  const [scoreInputs, setScoreInputs] = useState<Record<number, string>>({});
 
   // Timer input + local display (computed from Firestore banterTimer)
   const [timerInput, setTimerInput] = useState('60');
@@ -680,6 +681,17 @@ export default function OperatorPage() {
     } catch (e: unknown) {
       alert(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  function applyScore(playerId: number, sign: 1 | -1) {
+    if (!gameState) return;
+    const val = parseInt(scoreInputs[playerId] ?? '', 10);
+    if (!val || val <= 0) return;
+    const updatedPlayers = gameState.players.map((p) =>
+      p.id === playerId ? { ...p, score: p.score + sign * val } : p
+    );
+    db_update({ players: updatedPlayers });
+    setScoreInputs((prev) => ({ ...prev, [playerId]: '' }));
   }
 
   function renderBanterTimer() {
@@ -1150,6 +1162,33 @@ export default function OperatorPage() {
             </button>
           </div>
 
+          {/* Player score adjustments */}
+          <div className="space-y-2">
+            <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>PLAYER SCORES</p>
+            <div className="space-y-2">
+              {gameState.players.map((player) => (
+                <div key={player.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+                  <span className="font-mono text-sm font-semibold flex-1 truncate" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                  <span className="font-mono text-xs font-bold shrink-0" style={{ color: '#f59e0b' }}>{player.score}</span>
+                  <input
+                    type="number" min="1"
+                    value={scoreInputs[player.id] ?? ''}
+                    onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
+                    className="w-14 px-2 py-1 rounded font-mono text-xs text-center focus:outline-none"
+                    style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                    placeholder="pts"
+                  />
+                  <button onClick={() => applyScore(player.id, 1)}
+                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                    style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
+                  <button onClick={() => applyScore(player.id, -1)}
+                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                    style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="pt-4" style={{ borderTop: '1px solid #27272a' }}>
             <button onClick={() => db_update({ phase: 'SEGMENT1' })}
               className="w-full py-4 rounded-xl font-mono text-base font-bold uppercase tracking-widest transition-colors"
@@ -1192,24 +1231,51 @@ export default function OperatorPage() {
             const isDone = completedStorytellers.includes(player.id);
             const isSelected = currentStorytellerId === player.id;
             return (
-              <button
+              <div
                 key={player.id}
-                disabled={isDone}
-                onClick={() => onSelect(player.id)}
-                className="flex flex-col items-center gap-3 p-5 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex flex-col rounded-xl transition-all"
                 style={{
                   border: isSelected ? '2px solid #f59e0b' : '1px solid #3f3f46',
                   backgroundColor: isSelected ? '#130f00' : '#18181b',
+                  opacity: isDone ? 0.4 : 1,
                 }}
               >
-                {player.photo && (
-                  <img src={player.photo} className="w-16 h-16 rounded-full object-cover" alt="" />
-                )}
-                <span className="font-mono text-base font-bold" style={{ color: isSelected ? '#f59e0b' : '#a1a1aa' }}>
-                  {player.name}
-                </span>
-                {isDone && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ DONE</span>}
-              </button>
+                {/* Storyteller select area */}
+                <button
+                  disabled={isDone}
+                  onClick={() => onSelect(player.id)}
+                  className="flex flex-col items-center gap-3 p-5 w-full disabled:cursor-not-allowed"
+                >
+                  {player.photo && (
+                    <img src={player.photo} className="w-16 h-16 rounded-full object-cover" alt="" />
+                  )}
+                  <span className="font-mono text-base font-bold" style={{ color: isSelected ? '#f59e0b' : '#a1a1aa' }}>
+                    {player.name}
+                  </span>
+                  {isDone && <span className="font-mono text-sm" style={{ color: '#4ade80' }}>✓ DONE</span>}
+                </button>
+
+                {/* Score adjustment */}
+                <div className="px-3 pb-3 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                  <p className="font-mono text-xs text-center font-bold" style={{ color: '#f59e0b' }}>{player.score} pts</p>
+                  <div className="flex gap-1">
+                    <input
+                      type="number" min="1"
+                      value={scoreInputs[player.id] ?? ''}
+                      onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
+                      className="flex-1 min-w-0 px-1 py-1 rounded font-mono text-xs text-center focus:outline-none"
+                      style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                      placeholder="pts"
+                    />
+                    <button onClick={() => applyScore(player.id, 1)}
+                      className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                      style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
+                    <button onClick={() => applyScore(player.id, -1)}
+                      className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                      style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
@@ -1543,13 +1609,32 @@ export default function OperatorPage() {
             const count = playerVoteCounts[player.id] ?? 0;
             const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
             return (
-              <div key={player.id} className="flex items-center gap-4">
-                {player.photo && <img src={player.photo} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />}
-                <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
-                <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ backgroundColor: '#27272a' }}>
-                  <div className="h-4 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: '#f59e0b' }} />
+              <div key={player.id} className="space-y-2">
+                <div className="flex items-center gap-4">
+                  {player.photo && <img src={player.photo} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />}
+                  <span className="font-mono text-base font-semibold w-28 shrink-0" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                  <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ backgroundColor: '#27272a' }}>
+                    <div className="h-4 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: '#f59e0b' }} />
+                  </div>
+                  <span className="font-mono text-sm font-bold w-24 text-right shrink-0" style={{ color: '#e4e4e7' }}>{count} ({pct}%)</span>
                 </div>
-                <span className="font-mono text-sm font-bold w-24 text-right shrink-0" style={{ color: '#e4e4e7' }}>{count} ({pct}%)</span>
+                <div className="flex items-center gap-2 pl-14">
+                  <span className="font-mono text-xs font-bold shrink-0" style={{ color: '#f59e0b' }}>{player.score} pts</span>
+                  <input
+                    type="number" min="1"
+                    value={scoreInputs[player.id] ?? ''}
+                    onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
+                    className="w-16 px-2 py-1 rounded font-mono text-xs text-center focus:outline-none"
+                    style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                    placeholder="pts"
+                  />
+                  <button onClick={() => applyScore(player.id, 1)}
+                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                    style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
+                  <button onClick={() => applyScore(player.id, -1)}
+                    className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                    style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
+                </div>
               </div>
             );
           })}
@@ -1608,7 +1693,35 @@ export default function OperatorPage() {
   function renderFinal() {
     const audienceUrl = `${origin}/audience`;
     return (
-      <div className="grid grid-cols-2 gap-6">
+      <div className="space-y-6">
+        {/* Player score adjustments */}
+        <div className="space-y-2">
+          <p className="font-mono text-xs uppercase tracking-widest" style={{ color: '#52525b' }}>PLAYER SCORES</p>
+          <div className="space-y-2">
+            {gameState!.players.map((player) => (
+              <div key={player.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ backgroundColor: '#0d0d0f', border: '1px solid #27272a' }}>
+                <span className="font-mono text-sm font-semibold flex-1 truncate" style={{ color: '#e4e4e7' }}>{player.name}</span>
+                <span className="font-mono text-xs font-bold shrink-0" style={{ color: '#f59e0b' }}>{player.score}</span>
+                <input
+                  type="number" min="1"
+                  value={scoreInputs[player.id] ?? ''}
+                  onChange={(e) => setScoreInputs((prev) => ({ ...prev, [player.id]: e.target.value }))}
+                  className="w-14 px-2 py-1 rounded font-mono text-xs text-center focus:outline-none"
+                  style={{ backgroundColor: '#09090b', border: '1px solid #3f3f46', color: '#fafafa' }}
+                  placeholder="pts"
+                />
+                <button onClick={() => applyScore(player.id, 1)}
+                  className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                  style={{ backgroundColor: '#052e16', color: '#4ade80', border: '1px solid #166534' }}>+</button>
+                <button onClick={() => applyScore(player.id, -1)}
+                  className="w-8 h-8 rounded font-mono font-bold text-sm shrink-0"
+                  style={{ backgroundColor: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d' }}>−</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-6">
         <div className="space-y-4">
           <p className="font-mono text-sm uppercase tracking-widest" style={{ color: '#52525b' }}>Display Controls</p>
           <div className="flex gap-3 flex-wrap">
@@ -1639,6 +1752,7 @@ export default function OperatorPage() {
             <p className="font-mono text-sm mt-3" style={{ color: '#52525b' }}>Scan to access audience voting</p>
           </div>
         )}
+        </div>
       </div>
     );
   }

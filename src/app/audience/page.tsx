@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  doc, onSnapshot, updateDoc, getDoc, setDoc,
+  doc, onSnapshot, updateDoc, setDoc,
 } from 'firebase/firestore';
 import {
   GoogleAuthProvider, onAuthStateChanged, signInWithPopup,
@@ -95,14 +95,15 @@ export default function AudiencePage() {
     return () => unsub();
   }, []);
 
-  // ── Voter doc lookup (after auth) ────────────────────────────────────────
+  // ── Voter doc lookup (real-time — detects remote deletion) ──────────────
 
   useEffect(() => {
     if (!user) return;
     setVoterDoc(null); // loading
-    getDoc(doc(db, 'voters', user.uid)).then((snap) => {
+    const unsub = onSnapshot(doc(db, 'voters', user.uid), (snap) => {
       setVoterDoc(snap.exists() ? (snap.data() as VoterDoc) : false);
     });
+    return () => unsub();
   }, [user]);
 
   // ── Firestore game state listener ────────────────────────────────────────
