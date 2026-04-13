@@ -4,9 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:staging": "npx env-cmd -f .env.staging next dev",
     "build": "next build",
+    "build:staging": "npx env-cmd -f .env.staging next build",
+    "build:production": "npx env-cmd -f .env.production next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "clean": "rm -rf .next out",
+    "deploy:prod": "npm run clean && firebase use prod && npm run build:production && firebase deploy",
+    "deploy:staging": "npm run clean && firebase use staging && npm run build:staging && firebase deploy",
+    "deploy:rules:prod": "firebase use prod && firebase deploy --only firestore:rules",
+    "deploy:rules:staging": "firebase use staging && firebase deploy --only firestore:rules"
   },
   "dependencies": {
     "@types/papaparse": "^5.3.16",
@@ -22,6 +30,8 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.21",
+    "dotenv-cli": "^11.0.0",
+    "env-cmd": "^11.0.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.3",
     "postcss": "^8",
